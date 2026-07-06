@@ -10,7 +10,10 @@ export const deliveryServiceAliases = [
     { canonical: 'VIX', key: 'vix', aliases: ['vix', 'vixx'] },
     { canonical: 'IPTV', key: 'iptv', aliases: ['iptv', 'smarters'] },
     { canonical: 'DIRECTV GO', key: 'directv', aliases: ['directv', 'directv go', 'dgo'] },
-    { canonical: 'Spotify', key: 'spotify', aliases: ['spotify'] }
+    { canonical: 'Spotify', key: 'spotify', aliases: ['spotify'] },
+    { canonical: 'YouTube Premium', key: 'youtube', aliases: ['youtube', 'youtube premium', 'yt premium'] },
+    { canonical: 'Xbox Game Pass', key: 'xbox', aliases: ['xbox', 'xbox game pass', 'game pass', 'gamepass'] },
+    { canonical: 'ChatGPT', key: 'chatgpt', aliases: ['chatgpt', 'chat gpt', 'openai'] }
 ];
 export function deliveryServiceFromText(text) {
     const normalized = text.toLowerCase();

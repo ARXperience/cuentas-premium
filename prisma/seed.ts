@@ -289,6 +289,50 @@ const products = [
     content_type: 'Musica, podcasts y audio premium por 3 meses',
     description: 'Acceso a Spotify Premium por 3 meses para musica, podcasts, descargas offline, reproduccion en cualquier orden y audio de alta calidad segun disponibilidad.',
     benefits: ['Musica sin anuncios.', 'Descarga offline.', 'Reproduccion libre.', 'Servicio extendido por 3 meses.']
+  },
+  {
+    name: 'YouTube Premium x30 Dias',
+    category: 'YouTube Premium',
+    price: 7500,
+    brand_key: 'youtube',
+    duration: '30 dias',
+    screens: '1 cuenta',
+    content_type: 'Videos y musica premium',
+    description: 'Acceso a YouTube Premium por 30 dias para disfrutar videos sin anuncios, reproduccion en segundo plano, descargas y YouTube Music Premium segun disponibilidad del plan y dispositivos compatibles.',
+    benefits: ['Videos sin anuncios segun disponibilidad.', 'Reproduccion en segundo plano.', 'Descargas para ver contenido sin conexion.', 'Acceso a YouTube Music Premium segun el plan entregado.']
+  },
+  {
+    name: 'YouTube Premium x2 Meses',
+    category: 'YouTube Premium',
+    price: 14000,
+    brand_key: 'youtube',
+    duration: '2 meses',
+    screens: '1 cuenta',
+    content_type: 'Videos y musica premium por 2 meses',
+    description: 'Acceso a YouTube Premium por 2 meses con reproduccion sin anuncios, contenido en segundo plano, descargas y YouTube Music Premium segun disponibilidad del plan.',
+    benefits: ['Servicio extendido por 2 meses.', 'Videos sin anuncios segun disponibilidad.', 'Reproduccion en segundo plano y descargas.', 'YouTube Music Premium segun el plan entregado.']
+  },
+  {
+    name: 'Xbox Game Pass Ultimate',
+    category: 'Xbox',
+    price: 34500,
+    brand_key: 'xbox',
+    duration: '30 dias',
+    screens: '1 cuenta',
+    content_type: 'Catalogo de juegos y multijugador',
+    description: 'Acceso a Xbox Game Pass Ultimate por 30 dias con catalogo de juegos, multijugador online, EA Play y juego en la nube segun region, dispositivo y disponibilidad del plan.',
+    benefits: ['Catalogo de juegos seleccionados.', 'Multijugador online.', 'EA Play y beneficios incluidos segun disponibilidad.', 'Juego en la nube en regiones y dispositivos compatibles.']
+  },
+  {
+    name: 'ChatGPT Pro',
+    category: 'Inteligencia Artificial',
+    price: 32000,
+    brand_key: 'chatgpt',
+    duration: '30 dias',
+    screens: '1 cuenta',
+    content_type: 'Herramientas avanzadas de inteligencia artificial',
+    description: 'Acceso al servicio ChatGPT Pro por 30 dias para redaccion, analisis, estudio, programacion y creacion de contenido, sujeto a las funciones, limites y disponibilidad del plan entregado.',
+    benefits: ['Herramientas avanzadas de inteligencia artificial.', 'Apoyo para redaccion, analisis y programacion.', 'Uso desde dispositivos compatibles.', 'Entrega privada de los datos de acceso en la plataforma.']
   }
 ];
 
@@ -310,18 +354,25 @@ const providerCostRepairs: Record<string, { mistakenValue: number; previousValue
   'HBO Max Cuenta Completa 4 Pantallas': { mistakenValue: 14000, previousValue: 9625 }
 };
 
+const newProductProviderCosts: Record<string, number> = {
+  'YouTube Premium x30 Dias': 6000,
+  'YouTube Premium x2 Meses': 1200,
+  'Xbox Game Pass Ultimate': 25500,
+  'ChatGPT Pro': 15500
+};
+
 async function main() {
-  const productCount = await prisma.product.count();
-  if (productCount === 0) {
-    await prisma.product.createMany({
-      data: products.map((product) => ({
-        ...product,
-        provider_cost: providerCostRepairs[product.name]?.previousValue ?? Math.round(product.price * 0.55),
-        active: true
-      })),
-      skipDuplicates: true
-    });
-  }
+  const createdProducts = await prisma.product.createMany({
+    data: products.map((product) => ({
+      ...product,
+      provider_cost:
+        newProductProviderCosts[product.name] ??
+        providerCostRepairs[product.name]?.previousValue ??
+        Math.round(product.price * 0.55),
+      active: true
+    })),
+    skipDuplicates: true
+  });
 
   for (const [name, repair] of Object.entries(providerCostRepairs)) {
     await prisma.product.updateMany({
@@ -369,7 +420,9 @@ async function main() {
   await prisma.movement.create({
     data: {
       type: 'seed.products',
-      description: productCount === 0 ? 'Seed de productos base aplicado.' : 'Seed de productos omitido: ya existian productos.'
+      description: createdProducts.count
+        ? `Seed de productos aplicado: ${createdProducts.count} producto(s) nuevo(s).`
+        : 'Seed de productos revisado: no habia productos nuevos.'
     }
   });
 }

@@ -35,7 +35,10 @@ const brandLabels: Record<string, string> = {
   vix: "VX",
   iptv: "IP",
   directv: "GO",
-  spotify: "SP"
+  spotify: "SP",
+  youtube: "YT",
+  xbox: "XB",
+  chatgpt: "AI"
 };
 
 const brandLogos: Record<string, { src?: string; label: string; alt: string; wide?: boolean }> = {
@@ -50,7 +53,10 @@ const brandLogos: Record<string, { src?: string; label: string; alt: string; wid
   vix: { src: "https://commons.wikimedia.org/wiki/Special:Redirect/file/ViX_Logo.svg", label: "VIX", alt: "ViX", wide: true },
   iptv: { label: "IPTV", alt: "IPTV" },
   directv: { src: "https://commons.wikimedia.org/wiki/Special:Redirect/file/DGO-logo.svg", label: "DGO", alt: "DIRECTV GO", wide: true },
-  spotify: { src: "https://cdn.simpleicons.org/spotify/1DB954", label: "SP", alt: "Spotify" }
+  spotify: { src: "https://cdn.simpleicons.org/spotify/1DB954", label: "SP", alt: "Spotify" },
+  youtube: { src: "https://cdn.simpleicons.org/youtube/FF0000", label: "YT", alt: "YouTube Premium" },
+  xbox: { src: "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/xbox.svg", label: "XB", alt: "Xbox Game Pass" },
+  chatgpt: { src: "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/openai.svg", label: "AI", alt: "ChatGPT" }
 };
 
 const statusLabels: Record<OrderStatus, string> = {
@@ -734,7 +740,7 @@ function App() {
       />
 
       {user && <footer className="footer">
-        <p><strong>CENTRO DIGITAL DE DISENO</strong> &copy; 2026. PLATAFORMA DE GESTION DE ACTIVOS.</p>
+        <p className="footer-brand"><img src={centroDigitalLogo} alt="" aria-hidden="true" /><strong>CENTRO DIGITAL DE DISENO</strong> &copy; 2026. PLATAFORMA DE GESTION DE ACTIVOS.</p>
       </footer>}
     </>
   );

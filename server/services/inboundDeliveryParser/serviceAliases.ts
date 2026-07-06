@@ -10,7 +10,10 @@ export const serviceAliases: Array<{ key: string; aliases: string[] }> = [
   { key: 'vix', aliases: ['vix', 'vix+'] },
   { key: 'iptv', aliases: ['iptv', 'smarters'] },
   { key: 'directv', aliases: ['directv', 'dgo', 'directv go'] },
-  { key: 'spotify', aliases: ['spotify'] }
+  { key: 'spotify', aliases: ['spotify'] },
+  { key: 'youtube', aliases: ['youtube', 'youtube premium', 'yt premium'] },
+  { key: 'xbox', aliases: ['xbox', 'xbox game pass', 'game pass', 'gamepass'] },
+  { key: 'chatgpt', aliases: ['chatgpt', 'chat gpt', 'openai'] }
 ];
 
 export function serviceKeyFromText(text: string) {

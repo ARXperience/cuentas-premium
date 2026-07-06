@@ -22,6 +22,9 @@
   --brand-iptv: 16, 185, 129;
   --brand-directv: 0, 118, 190;
   --brand-spotify: 29, 185, 84;
+  --brand-youtube: 255, 0, 0;
+  --brand-xbox: 16, 124, 16;
+  --brand-chatgpt: 16, 163, 127;
 }
 
 * {
@@ -401,6 +404,9 @@ button {
 .iptv { --card-rgb: var(--brand-iptv); --accent: #10b981; }
 .directv { --card-rgb: var(--brand-directv); --accent: #0076be; }
 .spotify { --card-rgb: var(--brand-spotify); --accent: #1db954; }
+.youtube { --card-rgb: var(--brand-youtube); --accent: #ff0000; }
+.xbox { --card-rgb: var(--brand-xbox); --accent: #107c10; }
+.chatgpt { --card-rgb: var(--brand-chatgpt); --accent: #10a37f; }
 
 .card-header {
   display: flex;
@@ -705,6 +711,9 @@ textarea {
 .added-modal.iptv { --card-rgb: var(--brand-iptv); --accent: #10b981; }
 .added-modal.directv { --card-rgb: var(--brand-directv); --accent: #0076be; }
 .added-modal.spotify { --card-rgb: var(--brand-spotify); --accent: #1db954; }
+.added-modal.youtube { --card-rgb: var(--brand-youtube); --accent: #ff0000; }
+.added-modal.xbox { --card-rgb: var(--brand-xbox); --accent: #107c10; }
+.added-modal.chatgpt { --card-rgb: var(--brand-chatgpt); --accent: #10a37f; }
 
 .added-hero {
   display: flex;
@@ -1702,6 +1711,21 @@ th {
   background: #fff;
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.footer-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+
+.footer-brand img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
 }
 
 @media (max-width: 980px) {

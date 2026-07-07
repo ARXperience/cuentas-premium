@@ -1,6 +1,20 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { CartItem, Dashboard, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
 import centroDigitalLogo from "./assets/centro-digital-imagotipo.png";
+import netflixLogo from "./assets/brands/netflix.svg";
+import disneyPlusLogo from "./assets/brands/disney-plus.svg";
+import hboMaxLogo from "./assets/brands/hbo-max.svg";
+import primeVideoLogo from "./assets/brands/prime-video.svg";
+import crunchyrollLogo from "./assets/brands/crunchyroll.svg";
+import paramountPlusLogo from "./assets/brands/paramount-plus.svg";
+import appleTvLogo from "./assets/brands/apple-tv.svg";
+import plexLogo from "./assets/brands/plex.svg";
+import vixLogo from "./assets/brands/vix.svg";
+import directvGoLogo from "./assets/brands/directv-go.svg";
+import spotifyLogo from "./assets/brands/spotify.svg";
+import youtubeLogo from "./assets/brands/youtube.svg";
+import xboxLogo from "./assets/brands/xbox.svg";
+import chatgptLogo from "./assets/brands/chatgpt.svg";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 const money = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
@@ -42,21 +56,21 @@ const brandLabels: Record<string, string> = {
 };
 
 const brandLogos: Record<string, { src?: string; label: string; alt: string; wide?: boolean }> = {
-  netflix: { src: "https://cdn.simpleicons.org/netflix/E50914", label: "N", alt: "Netflix" },
-  disney: { src: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Disney%2B_logo.svg", label: "D+", alt: "Disney+", wide: true },
-  hbo: { src: "https://cdn.simpleicons.org/hbomax/744AD6", label: "MAX", alt: "HBO Max" },
-  amazon: { src: "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/primevideo.svg", label: "PV", alt: "Prime Video", wide: true },
-  crunchyroll: { src: "https://cdn.simpleicons.org/crunchyroll/F47521", label: "CR", alt: "Crunchyroll" },
-  paramount: { src: "https://cdn.simpleicons.org/paramountplus/0064FF", label: "P+", alt: "Paramount+" },
-  apple: { src: "https://cdn.simpleicons.org/appletv/111827", label: "TV", alt: "Apple TV" },
-  plex: { src: "https://cdn.simpleicons.org/plex/EBAF00", label: "PX", alt: "Plex" },
-  vix: { src: "https://commons.wikimedia.org/wiki/Special:Redirect/file/ViX_Logo.svg", label: "VIX", alt: "ViX", wide: true },
+  netflix: { src: netflixLogo, label: "N", alt: "Netflix" },
+  disney: { src: disneyPlusLogo, label: "D+", alt: "Disney+", wide: true },
+  hbo: { src: hboMaxLogo, label: "MAX", alt: "HBO Max" },
+  amazon: { src: primeVideoLogo, label: "PV", alt: "Prime Video", wide: true },
+  crunchyroll: { src: crunchyrollLogo, label: "CR", alt: "Crunchyroll" },
+  paramount: { src: paramountPlusLogo, label: "P+", alt: "Paramount+" },
+  apple: { src: appleTvLogo, label: "TV", alt: "Apple TV" },
+  plex: { src: plexLogo, label: "PX", alt: "Plex" },
+  vix: { src: vixLogo, label: "VIX", alt: "ViX", wide: true },
   iptv: { label: "IPTV", alt: "IPTV" },
-  directv: { src: "https://commons.wikimedia.org/wiki/Special:Redirect/file/DGO-logo.svg", label: "DGO", alt: "DIRECTV GO", wide: true },
-  spotify: { src: "https://cdn.simpleicons.org/spotify/1DB954", label: "SP", alt: "Spotify" },
-  youtube: { src: "https://cdn.simpleicons.org/youtube/FF0000", label: "YT", alt: "YouTube Premium" },
-  xbox: { src: "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/xbox.svg", label: "XB", alt: "Xbox Game Pass" },
-  chatgpt: { src: "https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/openai.svg", label: "AI", alt: "ChatGPT" }
+  directv: { src: directvGoLogo, label: "DGO", alt: "DIRECTV GO", wide: true },
+  spotify: { src: spotifyLogo, label: "SP", alt: "Spotify" },
+  youtube: { src: youtubeLogo, label: "YT", alt: "YouTube Premium" },
+  xbox: { src: xboxLogo, label: "XB", alt: "Xbox Game Pass" },
+  chatgpt: { src: chatgptLogo, label: "AI", alt: "ChatGPT" }
 };
 
 const statusLabels: Record<OrderStatus, string> = {
@@ -763,7 +777,10 @@ function AuthLanding({ authSubmit, busy }: {
   return (
     <main className="auth-landing page-shell">
       <section className="auth-copy">
-        <img className="auth-brand-mark" src={centroDigitalLogo} alt="Imagotipo Centro Digital de Diseño" />
+        <div className="auth-brand-lockup">
+          <img className="auth-brand-mark" src={centroDigitalLogo} alt="Imagotipo Centro Digital de Diseño" />
+          <strong>CENTRO DIGITAL</strong>
+        </div>
         <h1>Centro Digital de Diseño <span>Administrador de cuentas</span></h1>
       </section>
       <AuthCard authSubmit={authSubmit} busy={busy} />

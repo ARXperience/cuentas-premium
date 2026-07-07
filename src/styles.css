@@ -223,9 +223,23 @@ button {
 }
 
 .auth-brand-mark {
-  width: clamp(96px, 11vw, 144px);
-  height: clamp(96px, 11vw, 144px);
+  width: clamp(112px, 13vw, 164px);
+  height: clamp(112px, 13vw, 164px);
   object-fit: contain;
+}
+
+.auth-brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.auth-brand-lockup strong {
+  max-width: 190px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(18px, 2.2vw, 28px);
+  line-height: 1.05;
+  color: #0f172a;
 }
 
 .auth-copy h1 {
@@ -441,6 +455,24 @@ button {
   max-height: 30px;
   object-fit: contain;
   display: block;
+}
+
+.smart-card.xbox .logo-box img,
+.added-modal.xbox .logo-box img,
+.cart-summary-row.xbox .logo-box img {
+  filter: invert(41%) sepia(91%) saturate(793%) hue-rotate(78deg) brightness(79%) contrast(105%);
+}
+
+.smart-card.chatgpt .logo-box img,
+.added-modal.chatgpt .logo-box img,
+.cart-summary-row.chatgpt .logo-box img {
+  filter: invert(53%) sepia(52%) saturate(839%) hue-rotate(117deg) brightness(85%) contrast(92%);
+}
+
+.smart-card.amazon .logo-box img,
+.added-modal.amazon .logo-box img,
+.cart-summary-row.amazon .logo-box img {
+  filter: invert(49%) sepia(98%) saturate(1484%) hue-rotate(155deg) brightness(90%) contrast(102%);
 }
 
 .logo-box span {
@@ -1751,6 +1783,10 @@ th {
     margin-inline: auto;
   }
 
+  .auth-brand-lockup {
+    justify-content: center;
+  }
+
   .catalog-toolbar {
     align-items: flex-start;
     flex-direction: column;
@@ -1790,6 +1826,16 @@ th {
 }
 
 @media (max-width: 680px) {
+  .auth-brand-lockup {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .auth-brand-lockup strong {
+    max-width: none;
+  }
+
   .navbar {
     padding: 14px 16px;
     align-items: flex-start;

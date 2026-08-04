@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { CartItem, Dashboard, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
+import type { CartItem, Dashboard, DeliveredAccount, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
 import centroDigitalLogo from "./assets/centro-digital-imagotipo.png";
 import netflixLogo from "./assets/brands/netflix.svg";
 import disneyPlusLogo from "./assets/brands/disney-plus.svg";
@@ -997,6 +997,57 @@ function normalizeOrders(orders: any[]): Order[] {
   });
 }
 
+type ClientDeliveryRow = {
+  order: Order;
+  item: OrderItem;
+  account: DeliveredAccount;
+  unitValue: number;
+  deliveredUnits: number;
+  totalValue: number;
+};
+
+function orderItemUnitValue(item: OrderItem) {
+  return item.unit_price || (item.subtotal && item.quantity ? Math.round(item.subtotal / item.quantity) : 0);
+}
+
+function expectedOrderUnits(order: Order) {
+  return order.items.reduce((sum, item) => sum + Math.max(item.quantity || 0, 0), 0);
+}
+
+function buildClientDeliveryRows(orders: Order[]): ClientDeliveryRow[] {
+  return orders.flatMap((order) =>
+    order.items.flatMap((item) => {
+      const accounts = item.delivered_accounts || [];
+      const unitValue = orderItemUnitValue(item);
+      const missingUnitsCoveredByDeliveredStatus =
+        order.status === "delivered" && accounts.length > 0
+          ? Math.max((item.quantity || 1) - accounts.length, 0)
+          : 0;
+
+      return accounts.map((account, index) => {
+        const deliveredUnits = 1 + (index === 0 ? missingUnitsCoveredByDeliveredStatus : 0);
+        return {
+          order,
+          item,
+          account,
+          unitValue,
+          deliveredUnits,
+          totalValue: unitValue * deliveredUnits
+        };
+      });
+    })
+  ).sort((a, b) => new Date(b.account.delivered_at).getTime() - new Date(a.account.delivered_at).getTime());
+}
+
+function deliveredUnitsForOrder(order: Order) {
+  return buildClientDeliveryRows([order]).reduce((sum, delivery) => sum + delivery.deliveredUnits, 0);
+}
+
+function orderIsFullyDelivered(order: Order) {
+  const expectedUnits = expectedOrderUnits(order);
+  return expectedUnits > 0 && deliveredUnitsForOrder(order) >= expectedUnits;
+}
+
 function ClientPanel({ orders, notifications, unreadNotifications, markNotificationRead, copy }: {
   orders: Order[];
   notifications: Notification[];
@@ -1006,15 +1057,9 @@ function ClientPanel({ orders, notifications, unreadNotifications, markNotificat
 }) {
   const [deliverySearch, setDeliverySearch] = useState("");
   const [accountsModalOrder, setAccountsModalOrder] = useState<Order | null>(null);
-  const deliveries = orders.flatMap((order) =>
-    order.items.flatMap((item) =>
-      item.delivered_accounts.map((account) => {
-        const unitValue = item.unit_price || (item.subtotal && item.quantity ? Math.round(item.subtotal / item.quantity) : 0);
-        return { order, item, account, unitValue };
-      })
-    )
-  ).sort((a, b) => new Date(b.account.delivered_at).getTime() - new Date(a.account.delivered_at).getTime());
-  const deliveredTotal = deliveries.reduce((sum, delivery) => sum + delivery.unitValue, 0);
+  const deliveries = buildClientDeliveryRows(orders);
+  const deliveredTotal = deliveries.reduce((sum, delivery) => sum + delivery.totalValue, 0);
+  const deliveredUnitCount = deliveries.reduce((sum, delivery) => sum + delivery.deliveredUnits, 0);
   const normalizedSearch = deliverySearch.trim().toLowerCase();
   const filteredDeliveries = normalizedSearch
     ? deliveries.filter(({ order, item, account }) =>
@@ -1023,6 +1068,7 @@ function ClientPanel({ orders, notifications, unreadNotifications, markNotificat
           .some((value) => String(value).toLowerCase().includes(normalizedSearch))
       )
     : deliveries;
+  const filteredDeliveryUnits = filteredDeliveries.reduce((sum, delivery) => sum + delivery.deliveredUnits, 0);
   return (
     <main className="page-shell panel-page">
       <SectionTitle eyebrow="Panel cliente" title="Pedidos y cuentas entregadas" />
@@ -1031,7 +1077,7 @@ function ClientPanel({ orders, notifications, unreadNotifications, markNotificat
         <Metric label="Pendientes" value={orders.filter((order) => order.status !== "delivered" && order.status !== "cancelled").length} />
         <Metric label="Entregados" value={orders.filter((order) => order.status === "delivered").length} />
         <Metric label="Notificaciones" value={unreadNotifications} />
-        <Metric label="Cuentas disponibles" value={deliveries.length} />
+        <Metric label="Cuentas disponibles" value={deliveredUnitCount} />
         <Metric label="Valor entregado" value={money.format(deliveredTotal)} />
       </div>
       <div className="split-panels">
@@ -1040,7 +1086,7 @@ function ClientPanel({ orders, notifications, unreadNotifications, markNotificat
           <SectionTitle eyebrow="Privado" title="Mis cuentas entregadas" compact />
           <div className="delivered-toolbar">
             <div>
-              <strong>{filteredDeliveries.length} de {deliveries.length} cuentas</strong>
+              <strong>{filteredDeliveryUnits} de {deliveredUnitCount} cuentas</strong>
               <span>Total entregado: {money.format(deliveredTotal)}</span>
             </div>
             <input value={deliverySearch} onChange={(event) => setDeliverySearch(event.target.value)} placeholder="Buscar por servicio, correo, perfil o pedido" />
@@ -1048,16 +1094,17 @@ function ClientPanel({ orders, notifications, unreadNotifications, markNotificat
           <div className="table-scroll delivered-table">
             <table>
               <thead>
-                <tr><th>Orden</th><th>Compra</th><th>Entrega</th><th>Servicio</th><th>Valor</th><th>Correo / usuario</th><th>Contrasena</th><th>Perfil</th><th>PIN</th><th>Notas</th></tr>
+                <tr><th>Orden</th><th>Compra</th><th>Entrega</th><th>Servicio</th><th>Cant.</th><th>Valor</th><th>Correo / usuario</th><th>Contrasena</th><th>Perfil</th><th>PIN</th><th>Notas</th></tr>
               </thead>
               <tbody>
-                {filteredDeliveries.map(({ order, item, account, unitValue }) => (
+                {filteredDeliveries.map(({ order, item, account, deliveredUnits, totalValue }) => (
                   <tr key={account.id}>
                     <td>{orderLabel(order)}</td>
                     <td>{formatDateTime(order.created_at)}</td>
                     <td>{formatDateTime(account.delivered_at)}</td>
                     <td>{item.product_name}</td>
-                    <td>{money.format(unitValue)}</td>
+                    <td>{deliveredUnits}</td>
+                    <td>{money.format(totalValue)}</td>
                     <td><button className="table-copy" onClick={() => copy(account.delivered_email)}>{account.delivered_email || "-"}</button></td>
                     <td><button className="table-copy" onClick={() => copy(account.delivered_password)}>Copiar</button></td>
                     <td>{account.profile_name ? <button className="table-copy" onClick={() => copy(account.profile_name || "")}>{account.profile_name}</button> : "-"}</td>
@@ -1065,7 +1112,7 @@ function ClientPanel({ orders, notifications, unreadNotifications, markNotificat
                     <td>{account.notes || "-"}</td>
                   </tr>
                 ))}
-                {filteredDeliveries.length === 0 && <tr><td colSpan={10}>Cuando el proveedor cargue las cuentas apareceran aqui.</td></tr>}
+                {filteredDeliveries.length === 0 && <tr><td colSpan={11}>Cuando el proveedor cargue las cuentas apareceran aqui.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -1099,13 +1146,13 @@ function ClientOrderTable({ orders, onOpenAccounts }: { orders: Order[]; onOpenA
           <thead><tr><th>Orden</th><th>Productos</th><th>Total</th><th>Estado</th><th>Fecha pedido</th><th>Fecha entrega</th><th>Cuentas</th></tr></thead>
           <tbody>
             {orders.map((order) => {
-              const accountCount = order.items.reduce((sum, item) => sum + item.delivered_accounts.length, 0);
+              const accountCount = deliveredUnitsForOrder(order);
               return (
                 <tr key={order.id}>
                   <td>{orderLabel(order)}</td>
                   <td>{order.items.map((item) => `${item.quantity}x ${item.product_name}`).join(", ")}</td>
                   <td>{money.format(order.total)}</td>
-                  <td><SimpleOrderBadge delivered={accountCount > 0 || order.status === "delivered"} /></td>
+                  <td><SimpleOrderBadge delivered={orderIsFullyDelivered(order)} /></td>
                   <td>{formatDateTime(order.created_at)}</td>
                   <td>{formatDateTime(order.delivered_at)}</td>
                   <td>
@@ -1130,7 +1177,7 @@ function ClientOrderTable({ orders, onOpenAccounts }: { orders: Order[]; onOpenA
 
 function AccountsModal({ order, onClose }: { order: Order | null; onClose: () => void }) {
   if (!order) return null;
-  const deliveries = order.items.flatMap((item) => item.delivered_accounts.map((account) => ({ item, account })));
+  const deliveries = buildClientDeliveryRows([order]);
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <article className="accounts-modal">
@@ -1142,13 +1189,15 @@ function AccountsModal({ order, onClose }: { order: Order | null; onClose: () =>
           <button className="modal-close" onClick={onClose}>Cerrar</button>
         </div>
         <div className="accounts-modal-list">
-          {deliveries.map(({ item, account }) => (
+          {deliveries.map(({ item, account, deliveredUnits, totalValue }) => (
             <article className="account-access-card" key={account.id}>
               <div>
                 <strong>{item.product_name}</strong>
                 <span>Compra: {formatDateTime(order.created_at)} - Entrega: {formatDateTime(account.delivered_at)}</span>
               </div>
               <div className="account-access-grid">
+                <div className="account-detail-field"><span>Cantidad</span><strong>{deliveredUnits}</strong></div>
+                <div className="account-detail-field"><span>Valor</span><strong>{money.format(totalValue)}</strong></div>
                 <div className="account-detail-field"><span>Usuario</span><strong>{account.delivered_email || "-"}</strong></div>
                 <div className="account-detail-field"><span>Contrasena</span><strong>{account.delivered_password || "-"}</strong></div>
                 <div className="account-detail-field"><span>Perfil</span><strong>{account.profile_name || "-"}</strong></div>

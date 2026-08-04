@@ -346,14 +346,16 @@ function accountHasMinimumData(account) {
 function extractOrderNumberFromText(text) {
     return text.match(/(?:orden|pedido|order)\s*[:#-]?\s*(ORD-\d{4}-\d{6}|CDD-\d{4}-\d{6})/i)?.[1]?.toUpperCase();
 }
-function matchAccountToItem(account, items, usedItemIds = new Set()) {
+function remainingItemCapacity(item, deliveredCountByItem) {
+    return Math.max((item.quantity || 1) - (deliveredCountByItem.get(item.id) || 0), 0);
+}
+function matchAccountToItem(account, items, deliveredCountByItem = new Map()) {
     const accountKey = serviceKeyFromText(account.service);
-    return items.find((item) => {
-        if (usedItemIds.has(item.id))
-            return false;
+    const pendingItems = items.filter((item) => remainingItemCapacity(item, deliveredCountByItem) > 0);
+    return pendingItems.find((item) => {
         const productKey = serviceKeyFromText(`${item.product_name} ${item.product?.brand_key || ''}`);
         return accountKey && productKey && accountKey === productKey;
-    }) || items.find((item) => !usedItemIds.has(item.id));
+    }) || pendingItems[0];
 }
 async function findOrderForParsedMessage(parsed) {
     const pendingWhere = { status: { notIn: ['delivered', 'cancelled', 'payment_failed', 'payout_failed'] } };
@@ -418,19 +420,22 @@ async function refreshOrderDeliveryStatus(orderId, actorId) {
     });
 }
 async function createDeliveriesFromParsed(order, parsed, actorId) {
-    const usedItemIds = new Set();
     let created = 0;
+    const existingCounts = await prisma.deliveredAccount.groupBy({
+        by: ['order_item_id'],
+        where: { order_id: order.id },
+        _count: { id: true }
+    });
+    const deliveredCountByItem = new Map(existingCounts.map((entry) => [entry.order_item_id, entry._count.id]));
     for (const account of parsed.accounts) {
         if (!accountHasMinimumData(account))
             continue;
-        const item = matchAccountToItem(account, order.items, usedItemIds);
+        const item = matchAccountToItem(account, order.items, deliveredCountByItem);
         if (!item)
             continue;
-        const deliveredCount = await prisma.deliveredAccount.count({ where: { order_id: order.id, order_item_id: item.id } });
-        if (deliveredCount >= item.quantity) {
-            usedItemIds.add(item.id);
+        const deliveredCount = deliveredCountByItem.get(item.id) || 0;
+        if (deliveredCount >= item.quantity)
             continue;
-        }
         await prisma.deliveredAccount.create({
             data: {
                 order_id: order.id,
@@ -445,7 +450,7 @@ async function createDeliveriesFromParsed(order, parsed, actorId) {
             }
         });
         created += 1;
-        usedItemIds.add(item.id);
+        deliveredCountByItem.set(item.id, deliveredCount + 1);
     }
     const updated = await refreshOrderDeliveryStatus(order.id, actorId);
     if (created > 0) {

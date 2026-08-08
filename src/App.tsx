@@ -768,7 +768,7 @@ function App() {
       {view === "auth" && <AuthLanding authSubmit={authSubmit} busy={busy} />}
       {view === "catalog" && user?.role === "client" && <Catalog products={products} addToCart={addToCart} />}
       {view === "cart" && user?.role === "client" && <CartPage cart={cart} total={cartTotal} changeQuantity={changeQuantity} removeFromCart={removeFromCart} checkout={checkout} busy={busy} onContinueShopping={() => setView("catalog")} />}
-      {view === "client" && user?.role === "client" && <ClientPanel orders={orders} notifications={notifications} unreadNotifications={unreadNotifications} markNotificationRead={markNotificationRead} cancelOrder={cancelClientOrder} copy={copy} />}
+      {view === "client" && user?.role === "client" && <ClientPanel user={user} orders={orders} notifications={notifications} unreadNotifications={unreadNotifications} markNotificationRead={markNotificationRead} cancelOrder={cancelClientOrder} copy={copy} goToCatalog={() => setView("catalog")} />}
       {view === "provider" && user?.role === "provider" && <ProviderPanel orders={orders} deliveries={providerDeliveries} deliver={deliver} busy={busy} />}
       {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} trashedOrders={trashedOrders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} notifications={notifications} unreadNotifications={unreadNotifications} adminLogs={adminLogs} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} cancelPayout={cancelPayout} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} markNotificationRead={markNotificationRead} deleteOrder={deleteAdminOrder} copy={copy} />}
 
@@ -1084,21 +1084,39 @@ function orderIsFullyDelivered(order: Order) {
   return expectedUnits > 0 && deliveredUnitsForOrder(order) >= expectedUnits;
 }
 
-function ClientPanel({ orders, notifications, unreadNotifications, markNotificationRead, cancelOrder, copy }: {
+function ClientPanel({ user, orders, notifications, unreadNotifications, markNotificationRead, cancelOrder, copy, goToCatalog }: {
+  user: User;
   orders: Order[];
   notifications: Notification[];
   unreadNotifications: number;
   markNotificationRead: (notificationId: string) => void;
   cancelOrder: (order: Order) => void;
   copy: (text?: string | null) => void;
+  goToCatalog: () => void;
 }) {
-  const [deliverySearch, setDeliverySearch] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
   const [accountsModalOrder, setAccountsModalOrder] = useState<Order | null>(null);
   const [clientTab, setClientTab] = useState<"orders" | "accounts" | "notifications">("orders");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const deliveries = buildClientDeliveryRows(orders);
   const deliveredTotal = deliveries.reduce((sum, delivery) => sum + delivery.totalValue, 0);
   const deliveredUnitCount = deliveries.reduce((sum, delivery) => sum + delivery.deliveredUnits, 0);
-  const normalizedSearch = deliverySearch.trim().toLowerCase();
+  const pendingOrders = orders.filter((order) => order.status !== "delivered" && order.status !== "cancelled");
+  const deliveredOrders = orders.filter((order) => order.status === "delivered");
+  const normalizedSearch = clientSearch.trim().toLowerCase();
+  const filteredOrders = normalizedSearch
+    ? orders.filter((order) =>
+        [
+          order.id,
+          order.order_number,
+          order.status,
+          order.items.map((item) => item.product_name).join(" "),
+          order.items.map((item) => item.quantity).join(" ")
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalizedSearch))
+      )
+    : orders;
   const filteredDeliveries = normalizedSearch
     ? deliveries.filter(({ order, item, account }) =>
         [order.id, order.order_number, item.product_name, account.delivered_email, account.profile_name, account.notes]
@@ -1106,33 +1124,94 @@ function ClientPanel({ orders, notifications, unreadNotifications, markNotificat
           .some((value) => String(value).toLowerCase().includes(normalizedSearch))
       )
     : deliveries;
+  const filteredNotifications = normalizedSearch
+    ? notifications.filter((notification) =>
+        [notification.title, notification.message, notification.type, notification.order_id]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalizedSearch))
+      )
+    : notifications;
   const filteredDeliveryUnits = filteredDeliveries.reduce((sum, delivery) => sum + delivery.deliveredUnits, 0);
+  const lastActivity = [
+    ...orders.map((order) => order.updated_at || order.created_at),
+    ...notifications.map((notification) => notification.created_at),
+    ...deliveries.map((delivery) => delivery.account.delivered_at)
+  ].filter(Boolean).sort((a, b) => new Date(String(b)).getTime() - new Date(String(a)).getTime())[0];
+  const selectTab = (tab: "orders" | "accounts" | "notifications") => {
+    setClientTab(tab);
+    setSidebarOpen(false);
+  };
+
   return (
-    <main className="page-shell panel-page">
-      <SectionTitle eyebrow="Panel cliente" title="Pedidos y cuentas entregadas" />
-      <div className="dashboard-grid">
-        <Metric label="Pedidos" value={orders.length} />
-        <Metric label="Pendientes" value={orders.filter((order) => order.status !== "delivered" && order.status !== "cancelled").length} />
-        <Metric label="Entregados" value={orders.filter((order) => order.status === "delivered").length} />
-        <Metric label="Notificaciones" value={unreadNotifications} />
-        <Metric label="Cuentas disponibles" value={deliveredUnitCount} />
-        <Metric label="Valor entregado" value={money.format(deliveredTotal)} />
-      </div>
-      <nav className="section-tabs" aria-label="Panel cliente">
-        <button className={clientTab === "orders" ? "active" : ""} onClick={() => setClientTab("orders")}>Pedidos</button>
-        <button className={clientTab === "accounts" ? "active" : ""} onClick={() => setClientTab("accounts")}>Mis cuentas</button>
-        <button className={clientTab === "notifications" ? "active" : ""} onClick={() => setClientTab("notifications")}>Notificaciones <strong>{unreadNotifications}</strong></button>
-      </nav>
-      <div className="split-panels">
-        {clientTab === "orders" && <ClientOrderTable orders={orders} onOpenAccounts={setAccountsModalOrder} onCancelOrder={cancelOrder} />}
-        {clientTab === "accounts" && <section className="glass-panel delivered-accounts-panel">
+    <main className="client-dashboard">
+      <aside className={sidebarOpen ? "client-sidebar open" : "client-sidebar"} aria-label="Panel cliente">
+        <button className="client-brand-lockup" onClick={() => selectTab("orders")}>
+          <img src={centroDigitalLogo} alt="Centro Digital" />
+          <strong>CENTRO DIGITAL</strong>
+        </button>
+        <nav className="client-side-nav">
+          <button className={clientTab === "orders" ? "active" : ""} onClick={() => selectTab("orders")}><span>01</span>Dashboard</button>
+          <button onClick={() => { goToCatalog(); setSidebarOpen(false); }}><span>02</span>Productos</button>
+          <button className={clientTab === "accounts" ? "active" : ""} onClick={() => selectTab("accounts")}><span>03</span>Cuentas <strong>{deliveredUnitCount}</strong></button>
+          <button className={clientTab === "notifications" ? "active" : ""} onClick={() => selectTab("notifications")}><span>04</span>Notificaciones <strong>{unreadNotifications}</strong></button>
+        </nav>
+        <div className="client-profile-card">
+          <div className="client-avatar">CD</div>
+          <div>
+            <strong>{user.name || "Centro Digital"}</strong>
+            <span>Cliente activo</span>
+          </div>
+        </div>
+      </aside>
+
+      <section className="client-workspace">
+        <header className="client-topbar">
+          <button className="client-menu-button" onClick={() => setSidebarOpen((open) => !open)} aria-label="Abrir menu de cliente"><span /></button>
+          <label className="client-search">
+            <span>Buscar</span>
+            <input value={clientSearch} onChange={(event) => setClientSearch(event.target.value)} placeholder="Buscar pedidos, productos o cuentas..." />
+            <kbd>Ctrl K</kbd>
+          </label>
+          <div className="client-top-status">
+            <span className="client-online-dot">En linea</span>
+            <div className="client-avatar compact">CD</div>
+          </div>
+        </header>
+
+        <div className="client-hero-row">
+          <div>
+            <span className="eyebrow">Panel cliente</span>
+            <h1>Hola, {user.name || "Centro Digital"}.</h1>
+            <p>Aqui tienes el resumen de tus pedidos, cuentas entregadas y avisos recientes.</p>
+          </div>
+          <span className="client-refresh-note">Ultima actividad: {formatDateTime(lastActivity)}</span>
+        </div>
+
+        <div className="client-kpi-grid">
+          <ClientMetricCard tone="blue" label="Pedidos" value={orders.length} caption="Total historico" />
+          <ClientMetricCard tone="orange" label="Pendientes" value={pendingOrders.length} caption="En proceso" />
+          <ClientMetricCard tone="green" label="Entregados" value={deliveredOrders.length} caption="Completados" />
+          <ClientMetricCard tone="purple" label="Notificaciones" value={unreadNotifications} caption="Sin leer" />
+          <ClientMetricCard tone="blue" label="Cuentas disponibles" value={deliveredUnitCount} caption="Activas" />
+          <ClientMetricCard tone="green" label="Valor entregado" value={money.format(deliveredTotal)} caption="Cuentas recibidas" />
+        </div>
+
+        <section className="client-main-panel">
+          <nav className="section-tabs client-panel-tabs" aria-label="Panel cliente">
+            <button className={clientTab === "orders" ? "active" : ""} onClick={() => selectTab("orders")}>Pedidos</button>
+            <button className={clientTab === "accounts" ? "active" : ""} onClick={() => selectTab("accounts")}>Mis cuentas</button>
+            <button className={clientTab === "notifications" ? "active" : ""} onClick={() => selectTab("notifications")}>Notificaciones <strong>{unreadNotifications}</strong></button>
+          </nav>
+
+          {clientTab === "orders" && <ClientOrderTable orders={filteredOrders} onOpenAccounts={setAccountsModalOrder} onCancelOrder={cancelOrder} />}
+          {clientTab === "accounts" && <section className="client-accounts-panel delivered-accounts-panel">
           <SectionTitle eyebrow="Privado" title="Mis cuentas entregadas" compact />
           <div className="delivered-toolbar">
             <div>
               <strong>{filteredDeliveryUnits} de {deliveredUnitCount} cuentas</strong>
               <span>Total entregado: {money.format(deliveredTotal)}</span>
             </div>
-            <input value={deliverySearch} onChange={(event) => setDeliverySearch(event.target.value)} placeholder="Buscar por servicio, correo, perfil o pedido" />
+            <span className="client-filter-note">Filtrado por el buscador superior</span>
           </div>
           <div className="table-scroll delivered-table">
             <table>
@@ -1160,8 +1239,9 @@ function ClientPanel({ orders, notifications, unreadNotifications, markNotificat
             </table>
           </div>
         </section>}
-        {clientTab === "notifications" && <NotificationsPanel notifications={notifications} markNotificationRead={markNotificationRead} title="Notificaciones" emptyMessage="No tienes notificaciones pendientes." />}
-      </div>
+          {clientTab === "notifications" && <NotificationsPanel notifications={filteredNotifications} markNotificationRead={markNotificationRead} title="Notificaciones" emptyMessage="No tienes notificaciones pendientes." embedded />}
+        </section>
+      </section>
       <AccountsModal order={accountsModalOrder} onClose={() => setAccountsModalOrder(null)} />
     </main>
   );
@@ -1169,8 +1249,7 @@ function ClientPanel({ orders, notifications, unreadNotifications, markNotificat
 
 function ClientOrderTable({ orders, onOpenAccounts, onCancelOrder }: { orders: Order[]; onOpenAccounts: (order: Order) => void; onCancelOrder: (order: Order) => void }) {
   return (
-    <section className="glass-panel table-panel">
-      <SectionTitle eyebrow="Pedidos" title="Historial" compact />
+    <section className="client-table-panel table-panel">
       <div className="table-scroll">
         <table>
           <thead><tr><th>Orden</th><th>Productos</th><th>Total</th><th>Estado</th><th>Fecha pedido</th><th>Fecha entrega</th><th>Cuentas</th><th>Accion</th></tr></thead>
@@ -1250,15 +1329,16 @@ function AccountsModal({ order, onClose }: { order: Order | null; onClose: () =>
   );
 }
 
-function NotificationsPanel({ notifications, markNotificationRead, title, emptyMessage }: {
+function NotificationsPanel({ notifications, markNotificationRead, title, emptyMessage, embedded = false }: {
   notifications: Notification[];
   markNotificationRead: (notificationId: string) => void;
   title: string;
   emptyMessage: string;
+  embedded?: boolean;
 }) {
   const unread = notifications.filter((notification) => !notification.read);
   return (
-    <section className="glass-panel notifications-panel">
+    <section className={embedded ? "notifications-panel embedded-notifications" : "glass-panel notifications-panel"}>
       <SectionTitle eyebrow="Bandeja" title={title} compact />
       <div className="notification-summary">
         <Metric label="Sin leer" value={unread.length} />
@@ -1282,6 +1362,26 @@ function NotificationsPanel({ notifications, markNotificationRead, title, emptyM
         ))}
       </div>
     </section>
+  );
+}
+
+function ClientMetricCard({ tone, label, value, caption }: { tone: "blue" | "orange" | "green" | "purple"; label: string; value: string | number; caption: string }) {
+  return (
+    <article className={`client-metric-card ${tone}`}>
+      <div className="client-metric-top">
+        <span className="client-metric-icon" aria-hidden="true" />
+        <div>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      </div>
+      <div className="client-metric-bottom">
+        <small>{caption}</small>
+        <svg viewBox="0 0 86 30" aria-hidden="true" focusable="false">
+          <path d="M3 22 L17 18 L29 20 L42 10 L55 15 L68 7 L83 4" />
+        </svg>
+      </div>
+    </article>
   );
 }
 

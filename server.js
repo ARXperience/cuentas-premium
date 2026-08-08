@@ -16,6 +16,7 @@ function runStartupCommand(command, args) {
 function prepareDatabase() {
   const shouldSkip =
     process.env.SKIP_STARTUP_DB_SETUP === 'true' ||
+    process.env.RUN_STARTUP_DB_SETUP !== 'true' ||
     process.env.NODE_ENV !== 'production' ||
     !process.env.DATABASE_URL;
 

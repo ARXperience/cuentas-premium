@@ -93,7 +93,13 @@ npm run db:seed
 npm run bootstrap:production
 ```
 
-En Hostinger, `server.js` tambien intenta ejecutar automaticamente `prisma migrate deploy`, `prisma/seed.ts` y `scripts/bootstrap-production.ts` al iniciar si `NODE_ENV=production` y `DATABASE_URL` existe. Puedes desactivar ese comportamiento con:
+En Hostinger, `server.js` no ejecuta migraciones en cada arranque por defecto para evitar errores 503 si el entorno de Node no permite comandos largos de Prisma. Si necesitas activar esa preparacion automatica de base de datos en arranque, usa:
+
+```env
+RUN_STARTUP_DB_SETUP="true"
+```
+
+Si quieres forzar que nunca se ejecute esa preparacion desde `server.js`, usa:
 
 ```env
 SKIP_STARTUP_DB_SETUP="true"

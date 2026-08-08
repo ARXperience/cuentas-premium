@@ -1831,31 +1831,41 @@ th {
   display: flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
 }
 
-.client-metric-icon {
+.client-metric-card .client-metric-icon {
   display: grid;
   place-items: center;
+  flex: 0 0 48px;
   width: 48px;
   height: 48px;
   border-radius: 15px;
   background: rgba(37, 99, 235, 0.12);
+  color: inherit;
+  line-height: 1;
 }
 
-.client-metric-icon::before {
+.client-metric-card .client-metric-icon::before {
   content: "";
+  display: block;
   width: 18px;
   height: 18px;
   border: 2px solid currentColor;
   border-radius: 6px;
+  box-sizing: border-box;
 }
 
-.client-metric-card span,
+.client-metric-card .client-metric-top div > span,
 .client-metric-card small {
   display: block;
   color: #596984;
   font-size: 12px;
   font-weight: 900;
+}
+
+.client-metric-card .client-metric-top div {
+  min-width: 0;
 }
 
 .client-metric-card strong {

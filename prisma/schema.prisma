@@ -100,6 +100,9 @@ model Order {
   delivery_processed_at DateTime?
   delivered_at DateTime?
   client_notified_at DateTime?
+  deleted_at DateTime?
+  deleted_by String?
+  deleted_reason String?
   created_at     DateTime            @default(now())
   updated_at     DateTime            @updatedAt
   user           User                @relation("ClientOrders", fields: [user_id], references: [id])
@@ -120,6 +123,7 @@ model Order {
   @@index([wallet_status])
   @@index([payout_status])
   @@index([billing_period])
+  @@index([deleted_at])
   @@index([created_at])
   @@map("orders")
 }

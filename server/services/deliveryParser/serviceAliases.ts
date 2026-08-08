@@ -16,7 +16,15 @@ export const deliveryServiceAliases: Array<{ canonical: string; key: string; ali
   { canonical: 'ChatGPT', key: 'chatgpt', aliases: ['chatgpt', 'chat gpt', 'openai'] }
 ];
 
+function normalizeMatchText(text: string) {
+  return text
+    .replace(/Ã±/gi, 'n')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
 export function deliveryServiceFromText(text: string) {
-  const normalized = text.toLowerCase();
+  const normalized = normalizeMatchText(text);
   return deliveryServiceAliases.find((entry) => entry.aliases.some((alias) => normalized.includes(alias)));
 }

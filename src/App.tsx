@@ -128,6 +128,7 @@ function App() {
   const [emailStatus, setEmailStatus] = useState<EmailStatus | null>(null);
   const [pendingPayouts, setPendingPayouts] = useState<ProviderPayout[]>([]);
   const [pendingDeliveryOrders, setPendingDeliveryOrders] = useState<Order[]>([]);
+  const [trashedOrders, setTrashedOrders] = useState<Order[]>([]);
   const [providerDeliveries, setProviderDeliveries] = useState<ProviderDelivery[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [deliveryDrafts, setDeliveryDrafts] = useState<DeliveryDraft[]>([]);
@@ -276,6 +277,12 @@ function App() {
     setPendingDeliveryOrders(normalizeOrders(data.orders || []));
   }
 
+  async function loadTrashedOrders() {
+    if (user?.role !== "admin") return;
+    const data = await request<{ orders: Order[] }>("/api/admin/orders/trash");
+    setTrashedOrders(normalizeOrders(data.orders || []));
+  }
+
   async function loadDeliveryDrafts() {
     if (user?.role !== "admin") return;
     const data = await request<{ drafts: DeliveryDraft[] }>("/api/admin/delivery-drafts");
@@ -301,13 +308,13 @@ function App() {
   }
 
   async function loadNotifications() {
-    if (user?.role !== "client") return;
+    if (!user || !["client", "admin"].includes(user.role)) return;
     const data = await request<{ notifications: Notification[] }>("/api/notifications");
     setNotifications(data.notifications || []);
   }
 
   async function loadUnreadNotifications() {
-    if (user?.role !== "client") return;
+    if (!user || !["client", "admin"].includes(user.role)) return;
     const data = await request<{ count: number }>("/api/notifications/unread-count");
     setUnreadNotifications(data.count || 0);
   }
@@ -321,7 +328,7 @@ function App() {
   }
 
   async function refreshAdminData() {
-    await Promise.all([loadDashboard(), loadOrders(), loadUsers(), loadProducts(), loadProviderConfig(), loadPendingPayouts(), loadPendingDeliveryOrders(), loadWhatsAppStatus(), loadEmailStatus(), loadDeliveryDrafts(), loadWhatsAppInbound(), loadAdminLogs()]);
+    await Promise.all([loadDashboard(), loadOrders(), loadUsers(), loadProducts(), loadProviderConfig(), loadPendingPayouts(), loadPendingDeliveryOrders(), loadTrashedOrders(), loadWhatsAppStatus(), loadEmailStatus(), loadDeliveryDrafts(), loadWhatsAppInbound(), loadAdminLogs(), loadNotifications(), loadUnreadNotifications()]);
   }
 
   function addToCart(product: Product) {
@@ -443,6 +450,30 @@ function App() {
     await request(`/api/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
     if (user?.role === "provider") await refreshProviderData();
     if (user?.role === "admin") await refreshAdminData();
+  }
+
+  async function cancelClientOrder(order: Order) {
+    if (!window.confirm(`Cancelar el pedido ${orderLabel(order)}?`)) return;
+    setBusy(true);
+    try {
+      const data = await request<{ order: Order; message: string }>(`/api/orders/${order.id}/cancel`, { method: "PATCH" });
+      setNotice(data.message || "Pedido cancelado correctamente.");
+      await refreshClientData();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "No se pudo cancelar el pedido.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteAdminOrder(order: Order) {
+    const reason = window.prompt(`Motivo para enviar ${orderLabel(order)} a papelera`, "Eliminado desde panel admin") || "Eliminado desde panel admin";
+    await request(`/api/admin/orders/${order.id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ reason })
+    });
+    setNotice("Pedido enviado a papelera. Ya no se refleja en cliente/proveedor ni en cuentas.");
+    await refreshAdminData();
   }
 
   async function saveOrderEdit(orderId: string, event: FormEvent<HTMLFormElement>) {
@@ -634,6 +665,7 @@ function App() {
   }
 
   async function cancelPayout(payout: ProviderPayout) {
+    if (!window.confirm(`Cancelar el pedido ${payout.order?.order_number || payout.order_id}?`)) return;
     await request(`/api/admin/payouts/${payout.id}/cancel`, { method: "PATCH" });
     setNotice("Pedido cancelado.");
     await refreshAdminData();
@@ -691,7 +723,11 @@ function App() {
 
   async function markNotificationRead(notificationId: string) {
     await request(`/api/notifications/${notificationId}/read`, { method: "PATCH" });
-    await refreshClientData();
+    if (user?.role === "admin") {
+      await refreshAdminData();
+    } else {
+      await refreshClientData();
+    }
   }
 
   function copy(text?: string | null) {
@@ -732,9 +768,9 @@ function App() {
       {view === "auth" && <AuthLanding authSubmit={authSubmit} busy={busy} />}
       {view === "catalog" && user?.role === "client" && <Catalog products={products} addToCart={addToCart} />}
       {view === "cart" && user?.role === "client" && <CartPage cart={cart} total={cartTotal} changeQuantity={changeQuantity} removeFromCart={removeFromCart} checkout={checkout} busy={busy} onContinueShopping={() => setView("catalog")} />}
-      {view === "client" && user?.role === "client" && <ClientPanel orders={orders} notifications={notifications} unreadNotifications={unreadNotifications} markNotificationRead={markNotificationRead} copy={copy} />}
+      {view === "client" && user?.role === "client" && <ClientPanel orders={orders} notifications={notifications} unreadNotifications={unreadNotifications} markNotificationRead={markNotificationRead} cancelOrder={cancelClientOrder} copy={copy} />}
       {view === "provider" && user?.role === "provider" && <ProviderPanel orders={orders} deliveries={providerDeliveries} deliver={deliver} busy={busy} />}
-      {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} adminLogs={adminLogs} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} copy={copy} />}
+      {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} trashedOrders={trashedOrders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} notifications={notifications} unreadNotifications={unreadNotifications} adminLogs={adminLogs} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} cancelPayout={cancelPayout} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} markNotificationRead={markNotificationRead} deleteOrder={deleteAdminOrder} copy={copy} />}
 
       <AddedProductModal
         product={selectedAddedProduct}
@@ -1048,15 +1084,17 @@ function orderIsFullyDelivered(order: Order) {
   return expectedUnits > 0 && deliveredUnitsForOrder(order) >= expectedUnits;
 }
 
-function ClientPanel({ orders, notifications, unreadNotifications, markNotificationRead, copy }: {
+function ClientPanel({ orders, notifications, unreadNotifications, markNotificationRead, cancelOrder, copy }: {
   orders: Order[];
   notifications: Notification[];
   unreadNotifications: number;
   markNotificationRead: (notificationId: string) => void;
+  cancelOrder: (order: Order) => void;
   copy: (text?: string | null) => void;
 }) {
   const [deliverySearch, setDeliverySearch] = useState("");
   const [accountsModalOrder, setAccountsModalOrder] = useState<Order | null>(null);
+  const [clientTab, setClientTab] = useState<"orders" | "accounts" | "notifications">("orders");
   const deliveries = buildClientDeliveryRows(orders);
   const deliveredTotal = deliveries.reduce((sum, delivery) => sum + delivery.totalValue, 0);
   const deliveredUnitCount = deliveries.reduce((sum, delivery) => sum + delivery.deliveredUnits, 0);
@@ -1080,9 +1118,14 @@ function ClientPanel({ orders, notifications, unreadNotifications, markNotificat
         <Metric label="Cuentas disponibles" value={deliveredUnitCount} />
         <Metric label="Valor entregado" value={money.format(deliveredTotal)} />
       </div>
+      <nav className="section-tabs" aria-label="Panel cliente">
+        <button className={clientTab === "orders" ? "active" : ""} onClick={() => setClientTab("orders")}>Pedidos</button>
+        <button className={clientTab === "accounts" ? "active" : ""} onClick={() => setClientTab("accounts")}>Mis cuentas</button>
+        <button className={clientTab === "notifications" ? "active" : ""} onClick={() => setClientTab("notifications")}>Notificaciones <strong>{unreadNotifications}</strong></button>
+      </nav>
       <div className="split-panels">
-        <ClientOrderTable orders={orders} onOpenAccounts={setAccountsModalOrder} />
-        <section className="glass-panel delivered-accounts-panel">
+        {clientTab === "orders" && <ClientOrderTable orders={orders} onOpenAccounts={setAccountsModalOrder} onCancelOrder={cancelOrder} />}
+        {clientTab === "accounts" && <section className="glass-panel delivered-accounts-panel">
           <SectionTitle eyebrow="Privado" title="Mis cuentas entregadas" compact />
           <div className="delivered-toolbar">
             <div>
@@ -1116,37 +1159,25 @@ function ClientPanel({ orders, notifications, unreadNotifications, markNotificat
               </tbody>
             </table>
           </div>
-        </section>
-        <section className="glass-panel">
-          <SectionTitle eyebrow="Avisos" title="Notificaciones" compact />
-          <div className="data-list">
-            {notifications.length === 0 && <p className="empty">No tienes notificaciones pendientes.</p>}
-            {notifications.map((notification) => (
-              <article className="inline-product" key={notification.id}>
-                <strong>{notification.title}</strong>
-                <span>{notification.message}</span>
-                <span>{formatDateTime(notification.created_at)}</span>
-                {!notification.read && <button onClick={() => markNotificationRead(notification.id)}>Marcar leida</button>}
-              </article>
-            ))}
-          </div>
-        </section>
+        </section>}
+        {clientTab === "notifications" && <NotificationsPanel notifications={notifications} markNotificationRead={markNotificationRead} title="Notificaciones" emptyMessage="No tienes notificaciones pendientes." />}
       </div>
       <AccountsModal order={accountsModalOrder} onClose={() => setAccountsModalOrder(null)} />
     </main>
   );
 }
 
-function ClientOrderTable({ orders, onOpenAccounts }: { orders: Order[]; onOpenAccounts: (order: Order) => void }) {
+function ClientOrderTable({ orders, onOpenAccounts, onCancelOrder }: { orders: Order[]; onOpenAccounts: (order: Order) => void; onCancelOrder: (order: Order) => void }) {
   return (
     <section className="glass-panel table-panel">
       <SectionTitle eyebrow="Pedidos" title="Historial" compact />
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Orden</th><th>Productos</th><th>Total</th><th>Estado</th><th>Fecha pedido</th><th>Fecha entrega</th><th>Cuentas</th></tr></thead>
+          <thead><tr><th>Orden</th><th>Productos</th><th>Total</th><th>Estado</th><th>Fecha pedido</th><th>Fecha entrega</th><th>Cuentas</th><th>Accion</th></tr></thead>
           <tbody>
             {orders.map((order) => {
               const accountCount = deliveredUnitsForOrder(order);
+              const canCancel = order.status !== "delivered" && order.status !== "cancelled" && accountCount === 0;
               return (
                 <tr key={order.id}>
                   <td>{orderLabel(order)}</td>
@@ -1163,6 +1194,13 @@ function ClientOrderTable({ orders, onOpenAccounts }: { orders: Order[]; onOpenA
                       </button>
                     ) : (
                       <span className="muted-cell">Pendiente</span>
+                    )}
+                  </td>
+                  <td>
+                    {canCancel ? (
+                      <button className="danger-link" onClick={() => onCancelOrder(order)}>Cancelar</button>
+                    ) : (
+                      <span className="muted-cell">-</span>
                     )}
                   </td>
                 </tr>
@@ -1209,6 +1247,41 @@ function AccountsModal({ order, onClose }: { order: Order | null; onClose: () =>
         </div>
       </article>
     </div>
+  );
+}
+
+function NotificationsPanel({ notifications, markNotificationRead, title, emptyMessage }: {
+  notifications: Notification[];
+  markNotificationRead: (notificationId: string) => void;
+  title: string;
+  emptyMessage: string;
+}) {
+  const unread = notifications.filter((notification) => !notification.read);
+  return (
+    <section className="glass-panel notifications-panel">
+      <SectionTitle eyebrow="Bandeja" title={title} compact />
+      <div className="notification-summary">
+        <Metric label="Sin leer" value={unread.length} />
+        <Metric label="Total avisos" value={notifications.length} />
+      </div>
+      <div className="data-list notification-list">
+        {notifications.length === 0 && <p className="empty">{emptyMessage}</p>}
+        {notifications.map((notification) => (
+          <article className={notification.read ? "inline-product notification-item read" : "inline-product notification-item"} key={notification.id}>
+            <div>
+              <strong>{notification.title}</strong>
+              <span>{notification.message}</span>
+              <small>{formatDateTime(notification.created_at)}</small>
+            </div>
+            {!notification.read ? (
+              <button onClick={() => markNotificationRead(notification.id)}>Marcar leida</button>
+            ) : (
+              <span className="muted-cell">Leida</span>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1312,17 +1385,20 @@ function OrderWorkCard({ order, deliver, busy }: {
   );
 }
 
-function AdminPanel({ dashboard, users, products, orders, pendingDeliveryOrders, pendingPayouts, providerConfig, whatsappStatus, whatsappQr, emailStatus, adminLogs, savingProductId, saveProduct, saveProviderConfig, saveAdminNotificationConfig, saveEmailConfig, testAdminEmail, connectWhatsApp, retryWhatsAppFailed, disconnectWhatsApp, testAdminWhatsApp, markReceiptSent, previewDeliveryMessage, approveParsedDelivery, saveDeliveryDraft, updateStatus, saveOrderEdit, copy }: {
+function AdminPanel({ dashboard, users, products, orders, trashedOrders, pendingDeliveryOrders, pendingPayouts, providerConfig, whatsappStatus, whatsappQr, emailStatus, notifications, unreadNotifications, adminLogs, savingProductId, saveProduct, saveProviderConfig, saveAdminNotificationConfig, saveEmailConfig, testAdminEmail, connectWhatsApp, retryWhatsAppFailed, disconnectWhatsApp, testAdminWhatsApp, markReceiptSent, cancelPayout, previewDeliveryMessage, approveParsedDelivery, saveDeliveryDraft, updateStatus, saveOrderEdit, markNotificationRead, deleteOrder, copy }: {
   dashboard: Dashboard | null;
   users: User[];
   products: Product[];
   orders: Order[];
+  trashedOrders: Order[];
   pendingDeliveryOrders: Order[];
   pendingPayouts: ProviderPayout[];
   providerConfig: ProviderConfig | null;
   whatsappStatus: WhatsAppBridgeStatus | null;
   whatsappQr: string | null;
   emailStatus: EmailStatus | null;
+  notifications: Notification[];
+  unreadNotifications: number;
   adminLogs: SystemLog[];
   savingProductId: string | null;
   saveProduct: (event: FormEvent<HTMLFormElement>, product?: Product) => Promise<void>;
@@ -1335,11 +1411,14 @@ function AdminPanel({ dashboard, users, products, orders, pendingDeliveryOrders,
   disconnectWhatsApp: () => void;
   testAdminWhatsApp: () => void;
   markReceiptSent: (payout: ProviderPayout) => void;
+  cancelPayout: (payout: ProviderPayout) => void;
   previewDeliveryMessage: (orderId: string | undefined, rawText: string) => Promise<{ preview: DeliveryParserPreview; order: Order }>;
   approveParsedDelivery: (orderId: string, rawText: string, items: DeliveryParserItem[]) => Promise<void>;
   saveDeliveryDraft: (orderId: string, rawText: string, preview: DeliveryParserPreview) => Promise<void>;
   updateStatus: (orderId: string, status: OrderStatus) => void;
   saveOrderEdit: (orderId: string, event: FormEvent<HTMLFormElement>) => void;
+  markNotificationRead: (notificationId: string) => void;
+  deleteOrder: (order: Order) => void;
   copy: (text?: string | null) => void;
 }) {
   const pendingOrders = pendingDeliveryOrders;
@@ -1382,7 +1461,7 @@ function AdminPanel({ dashboard, users, products, orders, pendingDeliveryOrders,
     setParserRawText("");
   }
 
-  type AdminModule = "dashboard" | "orders" | "process" | "payouts" | "products" | "servimil" | "provider" | "whatsapp" | "movements" | "logs";
+  type AdminModule = "dashboard" | "orders" | "process" | "payouts" | "products" | "servimil" | "provider" | "whatsapp" | "notifications" | "movements" | "trash" | "logs";
   const [adminModule, setAdminModule] = useState<AdminModule>("dashboard");
   const adminModules: Array<{ id: AdminModule; label: string }> = [
     { id: "dashboard", label: "Dashboard" },
@@ -1393,7 +1472,9 @@ function AdminPanel({ dashboard, users, products, orders, pendingDeliveryOrders,
     { id: "servimil", label: "Servimil" },
     { id: "provider", label: "Proveedor" },
     { id: "whatsapp", label: "WhatsApp admin" },
+    { id: "notifications", label: "Notificaciones" },
     { id: "movements", label: "Movimientos" },
+    { id: "trash", label: "Papelera" },
     { id: "logs", label: "Logs" }
   ];
   const servimilUser = users.find((user) => user.name.toLowerCase().includes("servimil") || user.email === "cliente@centrodigital.local");
@@ -1540,6 +1621,7 @@ function AdminPanel({ dashboard, users, products, orders, pendingDeliveryOrders,
             <Metric label="Pedidos pendientes" value={dashboard?.pendingOrders || 0} />
             <Metric label="Pedidos entregados" value={dashboard?.deliveredOrders || 0} />
             <Metric label="Cuentas procesadas" value={dashboard?.deliveredAccounts || 0} />
+            <Metric label="Avisos admin" value={unreadNotifications} />
             <Metric label="WhatsApp pendientes" value={dashboard?.notificationPending || 0} />
             <Metric label="WhatsApp fallidos" value={dashboard?.notificationFailed || 0} />
           </div>
@@ -1558,7 +1640,7 @@ function AdminPanel({ dashboard, users, products, orders, pendingDeliveryOrders,
         </div>
       )}
       <div className="admin-module-content">
-        {adminModule === "orders" && <OrderTable orders={orders} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} title="Pedidos" />}
+        {adminModule === "orders" && <OrderTable orders={orders} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} deleteOrder={deleteOrder} title="Pedidos" />}
         {adminModule === "process" && processAccountsModule}
         {adminModule === "payouts" && (
           <section className="glass-panel payments-panel admin-module-panel">
@@ -1576,6 +1658,7 @@ function AdminPanel({ dashboard, users, products, orders, pendingDeliveryOrders,
                     <button onClick={() => copy(String(payout.amount))}>Copiar valor</button>
                     <button onClick={() => copy(`Orden ${payout.order?.order_number || payout.order_id} - pagar ${money.format(payout.amount)} a ${payout.destination_type || payout.method}: ${payout.destination_phone}`)}>Copiar resumen</button>
                     <button onClick={() => markReceiptSent(payout)}>Marcar pago/comprobante gestionado</button>
+                    <button className="danger-link" onClick={() => cancelPayout(payout)}>Cancelar pedido</button>
                   </div>
                 </article>
               ))}
@@ -1775,6 +1858,12 @@ function AdminPanel({ dashboard, users, products, orders, pendingDeliveryOrders,
             </div>
           </section>
         )}
+        {adminModule === "notifications" && (
+          <NotificationsPanel notifications={notifications} markNotificationRead={markNotificationRead} title="Notificaciones admin" emptyMessage="No hay notificaciones administrativas." />
+        )}
+        {adminModule === "trash" && (
+          <OrderTable orders={trashedOrders} title="Papelera de pedidos" trashMode />
+        )}
         {adminModule === "logs" && (
           <section className="glass-panel admin-module-panel">
             <SectionTitle eyebrow="Sistema" title="Logs" compact />
@@ -1801,13 +1890,20 @@ function AdminPanel({ dashboard, users, products, orders, pendingDeliveryOrders,
   );
 }
 
-function OrderTable({ orders, updateStatus, saveOrderEdit, title = "Historial" }: { orders: Order[]; updateStatus?: (orderId: string, status: OrderStatus) => void; saveOrderEdit?: (orderId: string, event: FormEvent<HTMLFormElement>) => void; title?: string }) {
+function OrderTable({ orders, updateStatus, saveOrderEdit, deleteOrder, title = "Historial", trashMode = false }: {
+  orders: Order[];
+  updateStatus?: (orderId: string, status: OrderStatus) => void;
+  saveOrderEdit?: (orderId: string, event: FormEvent<HTMLFormElement>) => void;
+  deleteOrder?: (order: Order) => void;
+  title?: string;
+  trashMode?: boolean;
+}) {
   return (
     <section className="glass-panel table-panel">
       <SectionTitle eyebrow="Pedidos" title={title} compact />
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Orden</th><th>Cliente</th><th>Productos</th><th>Total venta</th><th>Total proveedor</th><th>Utilidad</th><th>Estado</th><th>Fecha</th><th>Detalle</th></tr></thead>
+          <thead><tr><th>Orden</th><th>Cliente</th><th>Productos</th><th>Total venta</th><th>Total proveedor</th><th>Utilidad</th><th>Estado</th><th>Fecha</th><th>{trashMode ? "Papelera" : "Detalle"}</th></tr></thead>
           <tbody>
             {orders.map((order) => (
               <tr key={order.id}>
@@ -1824,6 +1920,7 @@ function OrderTable({ orders, updateStatus, saveOrderEdit, title = "Historial" }
                     <summary>Ver detalle</summary>
                     <div className="timeline-cell">
                       <span>Pedido creado: {formatDateTime(order.created_at)}</span>
+                      {order.deleted_at && <span>En papelera: {formatDateTime(order.deleted_at)} - {order.deleted_reason || "Sin motivo"}</span>}
                       <span>Admin notificado: {formatDateTime(order.admin_notified_at)} ({order.admin_notification_channel || "pendiente"})</span>
                       <span>Pago gestionado: {formatDateTime(order.provider_payment_marked_at)}</span>
                       <span>Cuenta procesada: {formatDateTime(order.delivery_processed_at)}</span>
@@ -1860,6 +1957,9 @@ function OrderTable({ orders, updateStatus, saveOrderEdit, title = "Historial" }
                         </select>
                         <button>Guardar cambios</button>
                       </form>
+                    )}
+                    {deleteOrder && !order.deleted_at && (
+                      <button className="danger-link" onClick={() => deleteOrder(order)} type="button">Eliminar a papelera</button>
                     )}
                   </details>
                 </td>

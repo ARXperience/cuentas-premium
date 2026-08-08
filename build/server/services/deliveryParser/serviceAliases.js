@@ -15,7 +15,14 @@ export const deliveryServiceAliases = [
     { canonical: 'Xbox Game Pass', key: 'xbox', aliases: ['xbox', 'xbox game pass', 'game pass', 'gamepass'] },
     { canonical: 'ChatGPT', key: 'chatgpt', aliases: ['chatgpt', 'chat gpt', 'openai'] }
 ];
+function normalizeMatchText(text) {
+    return text
+        .replace(/Ã±/gi, 'n')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+}
 export function deliveryServiceFromText(text) {
-    const normalized = text.toLowerCase();
+    const normalized = normalizeMatchText(text);
     return deliveryServiceAliases.find((entry) => entry.aliases.some((alias) => normalized.includes(alias)));
 }

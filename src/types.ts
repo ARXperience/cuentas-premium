@@ -83,6 +83,9 @@ export type Order = {
   delivery_processed_at?: string | null;
   delivered_at?: string | null;
   client_notified_at?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  deleted_reason?: string | null;
   created_at: string;
   updated_at: string;
   user?: User;

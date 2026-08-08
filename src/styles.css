@@ -1062,6 +1062,38 @@ textarea {
   box-shadow: 0 12px 28px rgba(3, 105, 161, 0.24);
 }
 
+.section-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.section-tabs button {
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 10px 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.section-tabs button.active {
+  background: #0f172a;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+}
+
+.section-tabs strong {
+  margin-left: 6px;
+  color: inherit;
+}
+
 .admin-module-select {
   display: none;
   width: 100%;
@@ -1140,6 +1172,20 @@ textarea {
   border-radius: 8px;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.danger-link {
+  color: #b91c1c !important;
+  background: #fff1f2 !important;
+  border: 1px solid rgba(225, 29, 72, 0.16) !important;
+  border-radius: 9px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.danger-link:hover {
+  background: #ffe4e6 !important;
+  color: #9f1239 !important;
 }
 
 .draft-details {
@@ -1340,6 +1386,10 @@ details pre {
   align-items: start;
 }
 
+.split-panels > .glass-panel {
+  grid-column: 1 / -1;
+}
+
 .admin-grid {
   grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.6fr);
 }
@@ -1424,6 +1474,33 @@ th {
 
 .delivered-accounts-panel {
   min-width: 0;
+}
+
+.notifications-panel {
+  min-width: 0;
+}
+
+.notification-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin: 10px 0 16px;
+}
+
+.notification-item {
+  border: 1px solid rgba(14, 165, 233, 0.12);
+}
+
+.notification-item.read {
+  opacity: 0.72;
+  background: rgba(248, 250, 252, 0.68);
+}
+
+.notification-item small {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .delivered-toolbar {

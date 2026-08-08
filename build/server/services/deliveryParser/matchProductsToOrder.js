@@ -8,6 +8,10 @@ export function matchProductsToOrder(items, order) {
     const assignedCountByItem = new Map();
     const availableQuantity = (orderItem) => Math.max((orderItem.quantity || 1) - (deliveredCountByItem.get(orderItem.id) || 0) - (assignedCountByItem.get(orderItem.id) || 0), 0);
     const matched = items.map((item) => {
+        const hasAccessData = Boolean((item.delivered_email || item.delivered_user) && item.delivered_password);
+        if (!hasAccessData) {
+            return { ...item, needsReview: true };
+        }
         const detected = deliveryServiceFromText(item.serviceName);
         const matches = (order.items || []).filter((orderItem) => {
             const service = deliveryServiceFromText(`${orderItem.product_name} ${orderItem.product?.brand_key || ''}`);

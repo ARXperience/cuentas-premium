@@ -361,6 +361,14 @@ async function createNotification(user_id: string, order_id: string | null, type
   });
 }
 
+async function createRoleNotifications(role: Role, order_id: string | null, type: string, title: string, message: string) {
+  const users = await prisma.user.findMany({ where: { role }, select: { id: true } });
+  if (!users.length) return;
+  await prisma.notification.createMany({
+    data: users.map((user) => ({ user_id: user.id, order_id, type, title, message }))
+  });
+}
+
 function normalizePhone(value: string) {
   return value.replace(/[^\d]/g, '');
 }
@@ -411,7 +419,7 @@ function matchAccountToItem(account: ParsedDeliveryAccount, items: any[], delive
 }
 
 async function findOrderForParsedMessage(parsed: ParsedAccountMessage) {
-  const pendingWhere = { status: { notIn: ['delivered', 'cancelled', 'payment_failed', 'payout_failed'] as any } };
+  const pendingWhere = { deleted_at: null, status: { notIn: ['delivered', 'cancelled', 'payment_failed', 'payout_failed'] as any } };
   if (parsed.orderHint) {
     const order = await prisma.order.findFirst({
       where: {
@@ -534,7 +542,9 @@ async function createDeliveriesFromAdminItems(order: any, items: DeliveryParserI
       where: {
         order_id: order.id,
         order_item_id: orderItem.id,
-        delivered_email: item.delivered_email || item.delivered_user || null
+        delivered_email: item.delivered_email || item.delivered_user || null,
+        profile_name: item.profile_name || null,
+        pin: item.pin || null
       }
     });
     if (duplicate) continue;
@@ -1217,6 +1227,13 @@ app.post('/api/orders', sensitiveLimiter, requireAuth, requireRole('client'), as
 
     await addMovement('order.created', `Orden ${result.order.order_number} creada por ${result.order.user.email} por ${money(saleTotal)}.`, req.user!.id, result.order.id);
     await addMovement('provider_payout.pending_admin_payment', `Pago manual al proveedor pendiente por ${money(providerTotal)} para orden ${result.order.order_number}.`, req.user!.id, result.order.id);
+    await createRoleNotifications(
+      'admin',
+      result.order.id,
+      'order.created',
+      'Nuevo pedido pendiente',
+      `Orden ${result.order.order_number}: venta ${money(saleTotal)}, proveedor ${money(providerTotal)}, utilidad ${money(profitTotal)}.`
+    );
     await notifyAdminPaymentPending(result.order, result.payout);
 
     res.status(201).json({
@@ -1243,10 +1260,10 @@ app.get('/api/orders', requireAuth, async (req, res, next) => {
   try {
     const where =
       req.user!.role === 'admin'
-        ? {}
+        ? { deleted_at: null }
         : req.user!.role === 'provider'
-          ? { status: { notIn: ['cancelled', 'payment_failed', 'payout_failed'] as any }, OR: [{ provider_id: req.user!.id }, { provider_id: null }] }
-          : { user_id: req.user!.id };
+          ? { deleted_at: null, status: { notIn: ['cancelled', 'payment_failed', 'payout_failed'] as any }, OR: [{ provider_id: req.user!.id }, { provider_id: null }] }
+          : { user_id: req.user!.id, deleted_at: null };
 
     const orders = await prisma.order.findMany({
       where,
@@ -1267,8 +1284,8 @@ app.get('/api/orders/:id', requireAuth, async (req, res, next) => {
     });
     const allowed =
       req.user!.role === 'admin' ||
-      order.user_id === req.user!.id ||
-      (req.user!.role === 'provider' && !['cancelled', 'payment_failed', 'payout_failed'].includes(order.status) && (!order.provider_id || order.provider_id === req.user!.id));
+      (!order.deleted_at && order.user_id === req.user!.id) ||
+      (req.user!.role === 'provider' && !order.deleted_at && !['cancelled', 'payment_failed', 'payout_failed'].includes(order.status) && (!order.provider_id || order.provider_id === req.user!.id));
     if (!allowed) return res.status(403).json({ message: 'No puedes ver este pedido.' });
     res.json({ order: serializeOrder(order, req.user) });
   } catch (error) {
@@ -1282,6 +1299,7 @@ app.patch('/api/orders/:id/status', sensitiveLimiter, requireAuth, requireRole('
   try {
     const { status } = statusSchema.parse(req.body);
     const order = await prisma.order.findUniqueOrThrow({ where: { id: paramId(req.params.id) } });
+    if (order.deleted_at) return res.status(400).json({ message: 'Este pedido esta en la papelera.' });
     if (req.user!.role === 'provider' && order.provider_id && order.provider_id !== req.user!.id) {
       return res.status(403).json({ message: 'Este pedido esta asignado a otro proveedor.' });
     }
@@ -1306,6 +1324,40 @@ app.patch('/api/orders/:id/status', sensitiveLimiter, requireAuth, requireRole('
   }
 });
 
+app.patch('/api/orders/:id/cancel', sensitiveLimiter, requireAuth, requireRole('client'), async (req, res, next) => {
+  try {
+    const order = await prisma.order.findUniqueOrThrow({
+      where: { id: paramId(req.params.id) },
+      include: { user: true, provider: true, items: { include: { product: true } }, deliveries: { include: { product: true } }, payments: true, providerPayouts: true }
+    });
+    if (order.deleted_at) return res.status(404).json({ message: 'Pedido no encontrado.' });
+    if (order.user_id !== req.user!.id) return res.status(403).json({ message: 'No puedes cancelar este pedido.' });
+    if (order.status === 'cancelled') return res.status(400).json({ message: 'Este pedido ya esta cancelado.' });
+    if (order.status === 'delivered' || order.deliveries.length > 0) {
+      return res.status(400).json({ message: 'No se puede cancelar porque ya tiene cuentas entregadas.' });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.providerPayout.updateMany({ where: { order_id: order.id }, data: { status: 'cancelled' } });
+      return tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'cancelled',
+          payout_status: 'cancelled'
+        },
+        include: { user: true, provider: true, items: { include: { product: true } }, deliveries: { include: { product: true } }, payments: true, providerPayouts: true }
+      });
+    });
+
+    await addMovement('order.client_cancelled', `Cliente cancelo orden ${order.order_number} antes de la entrega.`, req.user!.id, order.id);
+    await createNotification(req.user!.id, order.id, 'order.cancelled', 'Pedido cancelado', `Cancelaste la orden ${order.order_number} antes de la entrega.`);
+    await createRoleNotifications('admin', order.id, 'order.client_cancelled', 'Pedido cancelado por cliente', `El cliente ${order.user.name} cancelo la orden ${order.order_number}.`);
+    res.json({ order: serializeOrder(updated, req.user), message: 'Pedido cancelado correctamente.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 const deliverySchema = z.object({
   order_item_id: z.string(),
   delivered_email: z.string().min(3),
@@ -1323,6 +1375,7 @@ app.post('/api/orders/:id/deliveries', sensitiveLimiter, requireAuth, requireRol
       where: { id: paramId(req.params.id) },
       include: { user: true, items: true }
     });
+    if (order.deleted_at) return res.status(400).json({ message: 'Este pedido esta en la papelera.' });
     if (req.user!.role === 'provider' && order.provider_id && order.provider_id !== req.user!.id) {
       return res.status(403).json({ message: 'Este pedido esta asignado a otro proveedor.' });
     }
@@ -1391,7 +1444,7 @@ app.post('/api/orders/:id/deliveries', sensitiveLimiter, requireAuth, requireRol
 app.get('/api/provider/deliveries', requireAuth, requireRole('provider'), async (req, res, next) => {
   try {
     const deliveries = await prisma.deliveredAccount.findMany({
-      where: { delivered_by: req.user!.id },
+      where: { delivered_by: req.user!.id, order: { deleted_at: null } },
       include: {
         order: { include: { user: true } },
         orderItem: true,
@@ -1422,7 +1475,7 @@ app.get('/api/provider/deliveries', requireAuth, requireRole('provider'), async 
   }
 });
 
-app.get('/api/notifications', requireAuth, requireRole('client'), async (req, res, next) => {
+app.get('/api/notifications', requireAuth, requireRole('client', 'admin'), async (req, res, next) => {
   try {
     const notifications = await prisma.notification.findMany({
       where: { user_id: req.user!.id },
@@ -1435,7 +1488,7 @@ app.get('/api/notifications', requireAuth, requireRole('client'), async (req, re
   }
 });
 
-app.get('/api/notifications/unread-count', requireAuth, requireRole('client'), async (req, res, next) => {
+app.get('/api/notifications/unread-count', requireAuth, requireRole('client', 'admin'), async (req, res, next) => {
   try {
     const count = await prisma.notification.count({ where: { user_id: req.user!.id, read: false } });
     res.json({ count });
@@ -1444,7 +1497,7 @@ app.get('/api/notifications/unread-count', requireAuth, requireRole('client'), a
   }
 });
 
-app.patch('/api/notifications/:id/read', sensitiveLimiter, requireAuth, requireRole('client'), async (req, res, next) => {
+app.patch('/api/notifications/:id/read', sensitiveLimiter, requireAuth, requireRole('client', 'admin'), async (req, res, next) => {
   try {
     const notification = await prisma.notification.findUniqueOrThrow({ where: { id: paramId(req.params.id) } });
     if (notification.user_id !== req.user!.id) return res.status(403).json({ message: 'No puedes modificar esta notificacion.' });
@@ -1486,11 +1539,12 @@ app.get('/api/admin/dashboard', requireAuth, requireRole('admin'), async (req, r
       whatsappInboundDrafts,
       whatsappInboundFailed
     ] = await Promise.all([
-      prisma.order.findMany(),
+      prisma.order.findMany({ where: { deleted_at: null } }),
       prisma.user.count(),
       prisma.product.count({ where: { active: true } }),
-      prisma.deliveredAccount.count(),
+      prisma.deliveredAccount.count({ where: { order: { deleted_at: null } } }),
       prisma.order.findMany({
+        where: { deleted_at: null },
         take: 8,
         include: { user: true, provider: true, items: true, deliveries: true, payments: { orderBy: { created_at: 'desc' }, take: 1 }, providerPayouts: { orderBy: { created_at: 'desc' }, take: 1 } },
         orderBy: { created_at: 'desc' }
@@ -1500,13 +1554,13 @@ app.get('/api/admin/dashboard', requireAuth, requireRole('admin'), async (req, r
       prisma.whatsAppOutbox.count({ where: { status: 'pending' } }),
       prisma.whatsAppOutbox.count({ where: { status: 'failed' } }),
       prisma.whatsAppOutbox.findFirst({ where: { status: 'sent' }, orderBy: { sent_at: 'desc' } }),
-      prisma.payment.findMany(),
-      prisma.payment.findMany({ take: 10, include: { order: { include: { user: true } } }, orderBy: { created_at: 'desc' } }),
+      prisma.payment.findMany({ where: { order: { deleted_at: null } } }),
+      prisma.payment.findMany({ where: { order: { deleted_at: null } }, take: 10, include: { order: { include: { user: true } } }, orderBy: { created_at: 'desc' } }),
       prisma.movement.count({ where: { type: 'payment.receipt_sent_to_provider' } }),
       prisma.movement.count({ where: { type: 'payment.receipt_send_failed' } }),
       prisma.user.findMany({ where: { role: 'client' }, orderBy: { created_at: 'desc' } }),
-      prisma.providerPayout.findMany(),
-      prisma.providerPayout.findMany({ take: 10, include: { order: { include: { user: true } } }, orderBy: { created_at: 'desc' } }),
+      prisma.providerPayout.findMany({ where: { order: { deleted_at: null } } }),
+      prisma.providerPayout.findMany({ where: { order: { deleted_at: null } }, take: 10, include: { order: { include: { user: true } } }, orderBy: { created_at: 'desc' } }),
       prisma.deliveryDraft.count({ where: { status: 'needs_review' } }),
       prisma.whatsAppInboundMessage.count(),
       prisma.whatsAppInboundMessage.count({ where: { status: 'auto_delivered' } }),
@@ -1647,6 +1701,7 @@ app.get('/api/admin/orders/pending-delivery', requireAuth, requireRole('admin'),
   try {
     const orders = await prisma.order.findMany({
       where: {
+        deleted_at: null,
         status: { notIn: ['delivered', 'cancelled', 'payment_failed', 'payout_failed'] as any },
         user: {
           role: 'client',
@@ -1686,6 +1741,7 @@ app.patch('/api/admin/orders/:id', sensitiveLimiter, requireAuth, requireRole('a
   try {
     const input = adminOrderEditSchema.parse(req.body);
     const order = await prisma.order.findUniqueOrThrow({ where: { id: paramId(req.params.id) } });
+    if (order.deleted_at) return res.status(400).json({ message: 'Este pedido esta en la papelera. No se puede editar hasta restaurarlo manualmente en base de datos.' });
     const saleTotal = input.sale_total ?? order.sale_total;
     const providerTotal = input.provider_total ?? order.provider_total;
     const profitTotal = input.profit_total ?? (saleTotal - providerTotal);
@@ -1713,6 +1769,57 @@ app.patch('/api/admin/orders/:id', sensitiveLimiter, requireAuth, requireRole('a
     });
     await addMovement('order.admin_updated', `Admin edito orden ${updated.order_number}: venta ${money(saleTotal)}, proveedor ${money(providerTotal)}, utilidad ${money(profitTotal)}, estado ${updated.status}.`, req.user!.id, updated.id);
     res.json({ order: serializeOrder(updated, req.user) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/admin/orders/:id', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
+  try {
+    const order = await prisma.order.findUniqueOrThrow({
+      where: { id: paramId(req.params.id) },
+      include: { user: true, provider: true, items: { include: { product: true } }, deliveries: { include: { product: true } }, payments: true, providerPayouts: true }
+    });
+    if (order.deleted_at) return res.status(400).json({ message: 'Este pedido ya esta en la papelera.' });
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 240) : 'Eliminado desde panel admin';
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.providerPayout.updateMany({ where: { order_id: order.id }, data: { status: 'cancelled' } });
+      return tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'cancelled',
+          payout_status: 'cancelled',
+          deleted_at: new Date(),
+          deleted_by: req.user!.id,
+          deleted_reason: reason
+        },
+        include: { user: true, provider: true, items: { include: { product: true } }, deliveries: { include: { product: true } }, payments: true, providerPayouts: true }
+      });
+    });
+    await addMovement('order.deleted_to_trash', `Admin envio orden ${order.order_number} a papelera. Motivo: ${reason}.`, req.user!.id, order.id);
+    await createNotification(
+      order.user_id,
+      order.id,
+      'order.deleted_to_trash',
+      'Pedido retirado',
+      `La orden ${order.order_number} fue retirada del panel.`
+    );
+    await createRoleNotifications('admin', order.id, 'order.deleted_to_trash', 'Pedido enviado a papelera', `Orden ${order.order_number} enviada a papelera por admin.`);
+    res.json({ order: serializeOrder(updated, req.user), message: 'Pedido enviado a papelera.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/admin/orders/trash', requireAuth, requireRole('admin'), async (req, res, next) => {
+  try {
+    const orders = await prisma.order.findMany({
+      where: { deleted_at: { not: null } },
+      include: { user: true, provider: true, items: { include: { product: true } }, deliveries: { include: { product: true } }, payments: true, providerPayouts: true },
+      orderBy: { deleted_at: 'desc' },
+      take: 100
+    });
+    res.json({ orders: orders.map((order) => serializeOrder(order, req.user)) });
   } catch (error) {
     next(error);
   }
@@ -1779,7 +1886,7 @@ app.get('/api/admin/logs', requireAuth, requireRole('admin'), async (req, res, n
 app.get('/api/admin/payouts/pending', requireAuth, requireRole('admin'), async (req, res, next) => {
   try {
     const payouts = await prisma.providerPayout.findMany({
-      where: { status: 'pending_admin_payment' },
+      where: { status: 'pending_admin_payment', order: { deleted_at: null } },
       include: { order: { include: { user: true, provider: true, items: true, deliveries: true, payments: true, providerPayouts: true } } },
       orderBy: { created_at: 'desc' }
     });
@@ -1812,6 +1919,7 @@ app.patch('/api/admin/payouts/:id/mark-receipt-sent', sensitiveLimiter, requireA
   try {
     const input = markReceiptSentSchema.parse(req.body);
     const payout = await prisma.providerPayout.findUniqueOrThrow({ where: { id: paramId(req.params.id) }, include: { order: true } });
+    if (payout.order.deleted_at) return res.status(400).json({ message: 'Este pedido esta en la papelera.' });
     if (payout.status !== 'pending_admin_payment') return res.status(400).json({ message: 'Este payout no esta pendiente de pago admin.' });
     const updated = await prisma.$transaction(async (tx) => {
       const updatedPayout = await tx.providerPayout.update({
@@ -1833,6 +1941,7 @@ app.patch('/api/admin/payouts/:id/mark-receipt-sent', sensitiveLimiter, requireA
     });
     await addMovement('provider_payout.receipt_sent_to_provider', `Admin marco comprobante enviado para orden ${updated.order.order_number}.`, req.user!.id, updated.order.id);
     await addMovement('order.released_to_provider', `Orden ${updated.order.order_number} liberada al proveedor.`, req.user!.id, updated.order.id);
+    await createRoleNotifications('admin', updated.order.id, 'order.released_to_provider', 'Pedido liberado al proveedor', `Orden ${updated.order.order_number} marcada con comprobante enviado.`);
     res.json({ payout: updated.payout, order: serializeOrder(updated.order, req.user) });
   } catch (error) {
     next(error);
@@ -1842,6 +1951,7 @@ app.patch('/api/admin/payouts/:id/mark-receipt-sent', sensitiveLimiter, requireA
 app.patch('/api/admin/payouts/:id/cancel', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
   try {
     const payout = await prisma.providerPayout.findUniqueOrThrow({ where: { id: paramId(req.params.id) }, include: { order: true } });
+    if (payout.order.deleted_at) return res.status(400).json({ message: 'Este pedido esta en la papelera.' });
     const updated = await prisma.$transaction(async (tx) => {
       const updatedPayout = await tx.providerPayout.update({ where: { id: payout.id }, data: { status: 'cancelled' } });
       const updatedOrder = await tx.order.update({
@@ -1852,6 +1962,14 @@ app.patch('/api/admin/payouts/:id/cancel', sensitiveLimiter, requireAuth, requir
       return { payout: updatedPayout, order: updatedOrder };
     });
     await addMovement('order.status_changed', `Admin cancelo orden ${updated.order.order_number}.`, req.user!.id, updated.order.id);
+    await createNotification(
+      updated.order.user_id,
+      updated.order.id,
+      'order.cancelled',
+      'Pedido cancelado',
+      `La orden ${updated.order.order_number} fue cancelada.`
+    );
+    await createRoleNotifications('admin', updated.order.id, 'order.cancelled', 'Pedido cancelado', `Orden ${updated.order.order_number} cancelada desde pagos al proveedor.`);
     res.json({ payout: updated.payout, order: serializeOrder(updated.order, req.user) });
   } catch (error) {
     next(error);

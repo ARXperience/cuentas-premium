@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { CartItem, Dashboard, DeliveredAccount, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
 import centroDigitalLogo from "./assets/centro-digital-imagotipo.png";
+import servimilLogo from "./assets/clients/servimil.png";
 import netflixLogo from "./assets/brands/netflix.svg";
 import disneyPlusLogo from "./assets/brands/disney-plus.svg";
 import hboMaxLogo from "./assets/brands/hbo-max.svg";
@@ -35,6 +36,11 @@ function normalizePhoneForCompare(value?: string | null) {
   const digits = String(value || "").replace(/[^\d]/g, "");
   if (digits.length === 10 && digits.startsWith("3")) return `57${digits}`;
   return digits;
+}
+
+function isServimilClient(user?: Pick<User, "name" | "email" | "role"> | null) {
+  if (!user || user.role !== "client") return false;
+  return user.name?.toLowerCase().includes("servimil") || user.email === "cliente@centrodigital.local";
 }
 
 const brandLabels: Record<string, string> = {
@@ -1137,6 +1143,9 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
     ...notifications.map((notification) => notification.created_at),
     ...deliveries.map((delivery) => delivery.account.delivered_at)
   ].filter(Boolean).sort((a, b) => new Date(String(b)).getTime() - new Date(String(a)).getTime())[0];
+  const servimilClient = isServimilClient(user);
+  const clientDisplayName = servimilClient ? "Servimil" : user.name || "Centro Digital";
+  const clientAvatar = servimilClient ? <img src={servimilLogo} alt="Servimil" /> : "CD";
   const selectTab = (tab: "orders" | "accounts" | "notifications") => {
     setClientTab(tab);
     setSidebarOpen(false);
@@ -1155,10 +1164,10 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
           <button className={clientTab === "accounts" ? "active" : ""} onClick={() => selectTab("accounts")}><span>03</span>Cuentas <strong>{deliveredUnitCount}</strong></button>
           <button className={clientTab === "notifications" ? "active" : ""} onClick={() => selectTab("notifications")}><span>04</span>Notificaciones <strong>{unreadNotifications}</strong></button>
         </nav>
-        <div className="client-profile-card">
-          <div className="client-avatar">CD</div>
+        <div className={servimilClient ? "client-profile-card branded-client-card" : "client-profile-card"}>
+          <div className={servimilClient ? "client-avatar client-logo-avatar" : "client-avatar"}>{clientAvatar}</div>
           <div>
-            <strong>{user.name || "Centro Digital"}</strong>
+            <strong>{clientDisplayName}</strong>
             <span>Cliente activo</span>
           </div>
         </div>
@@ -1174,14 +1183,14 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
           </label>
           <div className="client-top-status">
             <span className="client-online-dot">En linea</span>
-            <div className="client-avatar compact">CD</div>
+            <div className={servimilClient ? "client-avatar compact client-logo-avatar" : "client-avatar compact"}>{clientAvatar}</div>
           </div>
         </header>
 
         <div className="client-hero-row">
           <div>
             <span className="eyebrow">Panel cliente</span>
-            <h1>Hola, {user.name || "Centro Digital"}.</h1>
+            <h1>Hola, {clientDisplayName}.</h1>
             <p>Aqui tienes el resumen de tus pedidos, cuentas entregadas y avisos recientes.</p>
           </div>
           <span className="client-refresh-note">Ultima actividad: {formatDateTime(lastActivity)}</span>
@@ -1913,6 +1922,13 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
           <div className="admin-module-stack">
             <section className="glass-panel">
               <SectionTitle eyebrow="Cliente principal" title="Servimil" compact />
+              <div className="servimil-admin-head">
+                <img src={servimilLogo} alt="Servimil" />
+                <div>
+                  <strong>Servimil</strong>
+                  <span>Cliente principal - codigo 1111</span>
+                </div>
+              </div>
               <div className="dashboard-grid mini-metrics">
                 <Metric label="Nombre" value={servimilUser?.name || "Servimil"} />
                 <Metric label="Codigo acceso" value="1111" />

@@ -18,9 +18,9 @@ type InitialUserConfig = {
 const users: InitialUserConfig[] = [
   {
     role: 'client',
-    name: process.env.CLIENT_NAME,
-    email: process.env.CLIENT_EMAIL,
-    accessCode: process.env.CLIENT_CODE,
+    name: process.env.CLIENT_NAME || 'Servimil',
+    email: process.env.CLIENT_EMAIL || 'cliente@centrodigital.local',
+    accessCode: process.env.CLIENT_CODE || '1111',
     phone: process.env.CLIENT_PHONE
   },
   {
@@ -40,7 +40,22 @@ const users: InitialUserConfig[] = [
 
 async function ensureUser(config: InitialUserConfig) {
   const existing = await prisma.user.findFirst({ where: { role: config.role } });
-  if (existing) return existing;
+  if (existing) {
+    if (config.role === 'client' && config.name && config.email && config.accessCode) {
+      const codeOwner = await prisma.user.findUnique({ where: { access_code: config.accessCode } });
+      const canUseAccessCode = !codeOwner || codeOwner.id === existing.id;
+      return prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          name: config.name,
+          email: config.email.toLowerCase(),
+          ...(canUseAccessCode ? { access_code: config.accessCode } : {}),
+          phone: config.phone || existing.phone
+        }
+      });
+    }
+    return existing;
+  }
 
   if (!config.name || !config.email || !config.accessCode) {
     throw new Error(

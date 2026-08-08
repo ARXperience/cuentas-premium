@@ -1391,56 +1391,122 @@ function ProviderPanel({ orders, deliveries, deliver, busy }: {
   deliver: (orderId: string, item: OrderItem, event: FormEvent<HTMLFormElement>) => void;
   busy: boolean;
 }) {
+  const [providerTab, setProviderTab] = useState<"pending" | "history">("pending");
+  const [providerSearch, setProviderSearch] = useState("");
+  const [providerSidebarOpen, setProviderSidebarOpen] = useState(false);
   const isPendingProviderOrder = (order: Order) => order.status !== "delivered" && order.status !== "cancelled";
   const activeOrders = orders.filter(isPendingProviderOrder);
   const pendingValue = activeOrders.reduce((sum, order) => sum + (order.provider_total || order.total), 0);
+  const normalizedProviderSearch = providerSearch.trim().toLowerCase();
   const ordered = [...orders].sort((a, b) => {
     const weight: Record<OrderStatus, number> = { admin_payment_pending: 0, provider_delivery_pending: 1, wallet_pending: 2, payout_processing: 3, pending_payment: 4, paid: 5, pending: 6, processing: 7, delivered: 8, payout_failed: 9, payment_failed: 10, cancelled: 11 };
     return weight[a.status] - weight[b.status] || new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
+  const visibleActiveOrders = normalizedProviderSearch
+    ? ordered.filter(isPendingProviderOrder).filter((order) =>
+        [order.id, order.order_number, order.user?.name, order.items.map((item) => item.product_name).join(" ")]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalizedProviderSearch))
+      )
+    : ordered.filter(isPendingProviderOrder);
+  const visibleDeliveries = normalizedProviderSearch
+    ? deliveries.filter((delivery) =>
+        [delivery.order_id, delivery.order_number, delivery.product_name, delivery.client_name, delivery.delivered_email, delivery.profile_name, delivery.notes]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalizedProviderSearch))
+      )
+    : deliveries;
+  const selectProviderTab = (tab: "pending" | "history") => {
+    setProviderTab(tab);
+    setProviderSidebarOpen(false);
+  };
+
   return (
-    <main className="page-shell panel-page">
-      <div className="live-heading">
-        <SectionTitle eyebrow="Panel proveedor" title="Pedidos pendientes y entregas" />
-        <span className="nav-status"><span className="pulse-dot" /> Pedidos en vivo</span>
-      </div>
-      <div className="dashboard-grid">
-        <Metric label="Pedidos pendientes" value={activeOrders.length} />
-        <Metric label="Entregados hoy" value={deliveries.filter((delivery) => new Date(delivery.delivered_at).toDateString() === new Date().toDateString()).length} />
-        <Metric label="Total entregados" value={deliveries.length} />
-        <Metric label="Valor pendiente" value={money.format(pendingValue)} />
-      </div>
-      <section className="glass-panel">
-        <SectionTitle eyebrow="Operacion" title="Pedidos pendientes" compact />
-        <div className="data-list">
-          {activeOrders.length === 0 && <p className="empty">No hay pedidos pendientes en este momento.</p>}
-          {ordered.filter(isPendingProviderOrder).map((order) => (
-            <OrderWorkCard key={order.id} order={order} deliver={deliver} busy={busy} />
-          ))}
+    <main className="operator-dashboard provider-operator-dashboard">
+      <aside className={providerSidebarOpen ? "operator-sidebar open" : "operator-sidebar"} aria-label="Panel proveedor">
+        <button className="client-brand-lockup" onClick={() => selectProviderTab("pending")}>
+          <img src={centroDigitalLogo} alt="Centro Digital" />
+          <strong>CENTRO DIGITAL</strong>
+        </button>
+        <nav className="operator-side-nav">
+          <button className={providerTab === "pending" ? "active" : ""} onClick={() => selectProviderTab("pending")}><span>01</span>Pendientes <strong>{activeOrders.length}</strong></button>
+          <button className={providerTab === "history" ? "active" : ""} onClick={() => selectProviderTab("history")}><span>02</span>Historial <strong>{deliveries.length}</strong></button>
+        </nav>
+        <div className="client-profile-card">
+          <div className="client-avatar">PR</div>
+          <div>
+            <strong>Proveedor</strong>
+            <span>Pedidos en vivo</span>
+          </div>
         </div>
-      </section>
-      <section className="glass-panel">
-        <SectionTitle eyebrow="Historial" title="Pedidos entregados" compact />
-        <div className="table-scroll">
-          <table>
-            <thead><tr><th>Fecha</th><th>Pedido</th><th>Producto</th><th>Cliente</th><th>Estado</th><th>Usuario</th><th>Perfil</th><th>Notas</th></tr></thead>
-            <tbody>
-              {deliveries.map((delivery) => (
-                <tr key={delivery.id}>
-                  <td>{formatDateTime(delivery.delivered_at)}</td>
-                  <td>{delivery.order_number || `#${delivery.order_id.slice(0, 8)}`}</td>
-                  <td>{delivery.product_name}</td>
-                  <td>{delivery.client_name}</td>
-                  <td><SimpleOrderBadge delivered /></td>
-                  <td>{delivery.delivered_email || "-"}</td>
-                  <td>{delivery.profile_name || "-"}</td>
-                  <td>{delivery.notes || "-"}</td>
-                </tr>
+      </aside>
+
+      <section className="operator-workspace">
+        <header className="client-topbar">
+          <button className="client-menu-button" onClick={() => setProviderSidebarOpen((open) => !open)} aria-label="Abrir menu de proveedor"><span /></button>
+          <label className="client-search">
+            <span>Buscar</span>
+            <input value={providerSearch} onChange={(event) => setProviderSearch(event.target.value)} placeholder="Buscar pedido, cliente o producto..." />
+            <kbd>5s</kbd>
+          </label>
+          <div className="client-top-status">
+            <span className="client-online-dot">Pedidos en vivo</span>
+            <div className="client-avatar compact">PR</div>
+          </div>
+        </header>
+
+        <div className="client-hero-row">
+          <div>
+            <span className="eyebrow">Panel proveedor</span>
+            <h1>Pedidos pendientes y entregas.</h1>
+            <p>Gestiona solicitudes liberadas para entrega y revisa el historial real de cuentas cargadas.</p>
+          </div>
+          <span className="client-refresh-note">Actualizacion automatica cada 5 segundos</span>
+        </div>
+
+        <div className="client-kpi-grid provider-kpi-grid">
+          <ClientMetricCard tone="orange" label="Pendientes" value={activeOrders.length} caption="Listos para entregar" />
+          <ClientMetricCard tone="green" label="Entregados hoy" value={deliveries.filter((delivery) => new Date(delivery.delivered_at).toDateString() === new Date().toDateString()).length} caption="Actividad del dia" />
+          <ClientMetricCard tone="blue" label="Total entregados" value={deliveries.length} caption="Historial" />
+          <ClientMetricCard tone="purple" label="Valor pendiente" value={money.format(pendingValue)} caption="Costo proveedor" />
+        </div>
+
+        <section className="client-main-panel operator-main-panel">
+          <nav className="section-tabs client-panel-tabs" aria-label="Panel proveedor">
+            <button className={providerTab === "pending" ? "active" : ""} onClick={() => selectProviderTab("pending")}>Pedidos pendientes</button>
+            <button className={providerTab === "history" ? "active" : ""} onClick={() => selectProviderTab("history")}>Pedidos entregados <strong>{deliveries.length}</strong></button>
+          </nav>
+          {providerTab === "pending" && (
+            <div className="data-list">
+              {visibleActiveOrders.length === 0 && <p className="empty">No hay pedidos pendientes en este momento.</p>}
+              {visibleActiveOrders.map((order) => (
+                <OrderWorkCard key={order.id} order={order} deliver={deliver} busy={busy} />
               ))}
-              {deliveries.length === 0 && <tr><td colSpan={8}>Aun no hay entregas registradas.</td></tr>}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          )}
+          {providerTab === "history" && (
+            <div className="table-scroll">
+              <table>
+                <thead><tr><th>Fecha</th><th>Pedido</th><th>Producto</th><th>Cliente</th><th>Estado</th><th>Usuario</th><th>Perfil</th><th>Notas</th></tr></thead>
+                <tbody>
+                  {visibleDeliveries.map((delivery) => (
+                    <tr key={delivery.id}>
+                      <td>{formatDateTime(delivery.delivered_at)}</td>
+                      <td>{delivery.order_number || `#${delivery.order_id.slice(0, 8)}`}</td>
+                      <td>{delivery.product_name}</td>
+                      <td>{delivery.client_name}</td>
+                      <td><SimpleOrderBadge delivered /></td>
+                      <td>{delivery.delivered_email || "-"}</td>
+                      <td>{delivery.profile_name || "-"}</td>
+                      <td>{delivery.notes || "-"}</td>
+                    </tr>
+                  ))}
+                  {visibleDeliveries.length === 0 && <tr><td colSpan={8}>Aun no hay entregas registradas.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </section>
     </main>
   );
@@ -1563,6 +1629,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
 
   type AdminModule = "dashboard" | "orders" | "process" | "payouts" | "products" | "servimil" | "provider" | "whatsapp" | "notifications" | "movements" | "trash" | "logs";
   const [adminModule, setAdminModule] = useState<AdminModule>("dashboard");
+  const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
   const adminModules: Array<{ id: AdminModule; label: string }> = [
     { id: "dashboard", label: "Dashboard" },
     { id: "orders", label: "Pedidos" },
@@ -1584,6 +1651,10 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   const bridgeConnectedNumber = normalizePhoneForCompare(whatsappStatus?.connectedNumber);
   const adminNotificationNumber = normalizePhoneForCompare(providerConfig?.admin_notification_phone);
   const adminUsesBridgeNumber = Boolean(bridgeConnectedNumber && adminNotificationNumber && bridgeConnectedNumber === adminNotificationNumber);
+  const selectAdminModule = (module: AdminModule) => {
+    setAdminModule(module);
+    setAdminSidebarOpen(false);
+  };
 
   const processAccountsModule = (
     <section className="glass-panel payments-panel admin-module-panel">
@@ -1692,40 +1763,71 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   );
 
   return (
-    <main className="page-shell panel-page">
-      <div className="live-heading">
-        <SectionTitle eyebrow="Dashboard admin" title="Movimientos, ventas y actividad" />
-        <span className="nav-status"><span className="pulse-dot" /> Actualizando dashboard</span>
-      </div>
-      <nav className="admin-tabs" aria-label="Modulos admin">
-        {adminModules.map((module) => (
-          <button
-            className={`${adminModule === module.id ? "active" : ""} ${module.id === "process" ? "primary-module" : ""}`.trim()}
-            key={module.id}
-            onClick={() => setAdminModule(module.id)}
-            type="button"
-          >
-            {module.label}
-          </button>
-        ))}
-      </nav>
-      <select className="admin-module-select" value={adminModule} onChange={(event) => setAdminModule(event.target.value as AdminModule)}>
-        {adminModules.map((module) => <option key={module.id} value={module.id}>{module.label}</option>)}
-      </select>
+    <main className="operator-dashboard admin-operator-dashboard">
+      <aside className={adminSidebarOpen ? "operator-sidebar open" : "operator-sidebar"} aria-label="Panel admin">
+        <button className="client-brand-lockup" onClick={() => selectAdminModule("dashboard")}>
+          <img src={centroDigitalLogo} alt="Centro Digital" />
+          <strong>CENTRO DIGITAL</strong>
+        </button>
+        <nav className="operator-side-nav admin-tabs" aria-label="Modulos admin">
+          {adminModules.map((module, index) => (
+            <button
+              className={`${adminModule === module.id ? "active" : ""} ${module.id === "process" ? "primary-module" : ""}`.trim()}
+              key={module.id}
+              onClick={() => selectAdminModule(module.id)}
+              type="button"
+            >
+              <span>{String(index + 1).padStart(2, "0")}</span>{module.label}
+            </button>
+          ))}
+        </nav>
+        <div className="client-profile-card">
+          <div className="client-avatar">AD</div>
+          <div>
+            <strong>Administrador</strong>
+            <span>Control general</span>
+          </div>
+        </div>
+      </aside>
+
+      <section className="operator-workspace">
+        <header className="client-topbar admin-topbar">
+          <button className="client-menu-button" onClick={() => setAdminSidebarOpen((open) => !open)} aria-label="Abrir menu admin"><span /></button>
+          <label className="client-search admin-module-jump">
+            <span>Modulo</span>
+            <select value={adminModule} onChange={(event) => selectAdminModule(event.target.value as AdminModule)}>
+              {adminModules.map((module) => <option key={module.id} value={module.id}>{module.label}</option>)}
+            </select>
+            <kbd>10s</kbd>
+          </label>
+          <div className="client-top-status">
+            <span className="client-online-dot">Actualizando dashboard</span>
+            <div className="client-avatar compact">AD</div>
+          </div>
+        </header>
+
+        <div className="client-hero-row">
+          <div>
+            <span className="eyebrow">Dashboard admin</span>
+            <h1>Movimientos, ventas y actividad.</h1>
+            <p>Controla pedidos, productos, pagos manuales, notificaciones y auditoria desde un solo panel.</p>
+          </div>
+          <span className="client-refresh-note">Actualizacion automatica cada 10 segundos</span>
+        </div>
       {adminModule === "dashboard" && (
         <div className="admin-module-stack">
-          <div className="dashboard-grid">
-            <Metric label="Total vendido" value={money.format(dashboard?.totalSold || 0)} />
-            <Metric label="Total proveedor" value={money.format(dashboard?.totalProviderPaid || 0)} />
-            <Metric label="Utilidad" value={money.format(dashboard?.totalProfit || 0)} />
-            <Metric label="Pedidos pendientes" value={dashboard?.pendingOrders || 0} />
-            <Metric label="Pedidos entregados" value={dashboard?.deliveredOrders || 0} />
-            <Metric label="Cuentas procesadas" value={dashboard?.deliveredAccounts || 0} />
-            <Metric label="Avisos admin" value={unreadNotifications} />
-            <Metric label="WhatsApp pendientes" value={dashboard?.notificationPending || 0} />
-            <Metric label="WhatsApp fallidos" value={dashboard?.notificationFailed || 0} />
+          <div className="client-kpi-grid admin-kpi-grid">
+            <ClientMetricCard tone="green" label="Total vendido" value={money.format(dashboard?.totalSold || 0)} caption="Venta cliente" />
+            <ClientMetricCard tone="blue" label="Total proveedor" value={money.format(dashboard?.totalProviderPaid || 0)} caption="Costo proveedor" />
+            <ClientMetricCard tone="green" label="Utilidad" value={money.format(dashboard?.totalProfit || 0)} caption="Margen acumulado" />
+            <ClientMetricCard tone="orange" label="Pendientes" value={dashboard?.pendingOrders || 0} caption="Pago/entrega" />
+            <ClientMetricCard tone="purple" label="Entregados" value={dashboard?.deliveredOrders || 0} caption="Pedidos cerrados" />
+            <ClientMetricCard tone="blue" label="Cuentas" value={dashboard?.deliveredAccounts || 0} caption="Procesadas" />
+            <ClientMetricCard tone="purple" label="Avisos admin" value={unreadNotifications} caption="Sin leer" />
+            <ClientMetricCard tone="orange" label="WhatsApp pendientes" value={dashboard?.notificationPending || 0} caption="Cola" />
+            <ClientMetricCard tone="orange" label="WhatsApp fallidos" value={dashboard?.notificationFailed || 0} caption="Revisar" />
           </div>
-          <section className="glass-panel">
+          <section className="client-main-panel operator-main-panel">
             <SectionTitle eyebrow="Actividad" title="Ultimos movimientos" compact />
             <div className="data-list">
               {(dashboard?.movements || []).slice(0, 5).map((movement) => (
@@ -1986,6 +2088,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
           </section>
         )}
       </div>
+      </section>
     </main>
   );
 }

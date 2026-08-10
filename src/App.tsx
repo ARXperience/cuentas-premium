@@ -1198,10 +1198,10 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
           <strong>CENTRO DIGITAL</strong>
         </button>
         <nav className="client-side-nav">
-          <button className={clientTab === "orders" ? "active" : ""} onClick={() => selectTab("orders")}><span>01</span>Dashboard</button>
-          <button onClick={() => { goToCatalog(); setSidebarOpen(false); }}><span>02</span>Productos</button>
-          <button className={clientTab === "accounts" ? "active" : ""} onClick={() => selectTab("accounts")}><span>03</span>Cuentas <strong>{deliveredUnitCount}</strong></button>
-          <button className={clientTab === "notifications" ? "active" : ""} onClick={() => selectTab("notifications")}><span>04</span>Notificaciones <strong>{unreadNotifications}</strong></button>
+          <button className={clientTab === "orders" ? "active" : ""} onClick={() => selectTab("orders")}>Dashboard</button>
+          <button onClick={() => { goToCatalog(); setSidebarOpen(false); }}>Productos</button>
+          <button className={clientTab === "accounts" ? "active" : ""} onClick={() => selectTab("accounts")}>Cuentas <strong>{deliveredUnitCount}</strong></button>
+          <button className={clientTab === "notifications" ? "active" : ""} onClick={() => selectTab("notifications")}>Notificaciones <strong>{unreadNotifications}</strong></button>
         </nav>
         <div className={servimilClient ? "client-profile-card branded-client-card" : "client-profile-card"}>
           <div className={servimilClient ? "client-avatar client-logo-avatar" : "client-avatar"}>{clientAvatar}</div>
@@ -1479,8 +1479,8 @@ function ProviderPanel({ orders, deliveries, deliver, busy }: {
           <strong>CENTRO DIGITAL</strong>
         </button>
         <nav className="operator-side-nav">
-          <button className={providerTab === "pending" ? "active" : ""} onClick={() => selectProviderTab("pending")}><span>01</span>Pendientes <strong>{activeOrders.length}</strong></button>
-          <button className={providerTab === "history" ? "active" : ""} onClick={() => selectProviderTab("history")}><span>02</span>Historial <strong>{deliveries.length}</strong></button>
+          <button className={providerTab === "pending" ? "active" : ""} onClick={() => selectProviderTab("pending")}>Pendientes <strong>{activeOrders.length}</strong></button>
+          <button className={providerTab === "history" ? "active" : ""} onClick={() => selectProviderTab("history")}>Historial <strong>{deliveries.length}</strong></button>
         </nav>
         <div className="client-profile-card">
           <div className="client-avatar">PR</div>
@@ -1821,14 +1821,14 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
           <strong>CENTRO DIGITAL</strong>
         </button>
         <nav className="operator-side-nav admin-tabs" aria-label="Modulos admin">
-          {adminModules.map((module, index) => (
+          {adminModules.map((module) => (
             <button
               className={`${adminModule === module.id ? "active" : ""} ${module.id === "process" ? "primary-module" : ""}`.trim()}
               key={module.id}
               onClick={() => selectAdminModule(module.id)}
               type="button"
             >
-              <span>{String(index + 1).padStart(2, "0")}</span>{module.label}
+              {module.label}
             </button>
           ))}
         </nav>
@@ -2160,99 +2160,181 @@ function OrderTable({ orders, updateStatus, saveOrderEdit, saveDeliveredAccountE
   title?: string;
   trashMode?: boolean;
 }) {
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const selectedOrder = selectedOrderId ? orders.find((order) => order.id === selectedOrderId) || null : null;
+
   return (
-    <section className="glass-panel table-panel">
-      <SectionTitle eyebrow="Pedidos" title={title} compact />
-      <div className="table-scroll">
-        <table>
-          <thead><tr><th>Orden</th><th>Cliente</th><th>Productos</th><th>Total venta</th><th>Total proveedor</th><th>Utilidad</th><th>Estado</th><th>Fecha</th><th>{trashMode ? "Papelera" : "Detalle"}</th></tr></thead>
-          <tbody>
-            {orders.map((order) => (
-              <tr key={order.id}>
-                <td>{orderLabel(order)}</td>
-                <td>{order.user?.name || "Servimil"}</td>
-                <td>{order.items.map((item) => `${item.quantity}x ${item.product_name}`).join(", ")}</td>
-                <td>{money.format(order.sale_total || order.total)}</td>
-                <td>{money.format(order.provider_total || 0)}</td>
-                <td>{money.format(order.profit_total || 0)}</td>
-                <td><StatusBadge status={order.status} /></td>
-                <td>{formatDateTime(order.created_at)}</td>
-                <td>
-                  <details className="order-detail-popover">
-                    <summary>Ver detalle</summary>
-                    <div className="timeline-cell">
-                      <span>Pedido creado: {formatDateTime(order.created_at)}</span>
-                      {order.deleted_at && <span>En papelera: {formatDateTime(order.deleted_at)} - {order.deleted_reason || "Sin motivo"}</span>}
-                      <span>Admin notificado: {formatDateTime(order.admin_notified_at)} ({order.admin_notification_channel || "pendiente"})</span>
-                      <span>Pago gestionado: {formatDateTime(order.provider_payment_marked_at)}</span>
-                      <span>Cuenta procesada: {formatDateTime(order.delivery_processed_at)}</span>
-                      <span>Cliente notificado: {formatDateTime(order.client_notified_at)}</span>
-                      <span>Entregado: {formatDateTime(order.delivered_at)}</span>
-                      <span>Proveedor: {order.provider?.name || "-"}</span>
+    <>
+      <section className="glass-panel table-panel admin-orders-panel">
+        <SectionTitle eyebrow="Pedidos" title={title} compact />
+        <div className="table-scroll">
+          <table className="admin-orders-table">
+            <thead><tr><th>Orden</th><th>Cliente</th><th>Productos</th><th>Total venta</th><th>Total proveedor</th><th>Utilidad</th><th>Estado</th><th>Fecha</th><th>{trashMode ? "Papelera" : "Detalle"}</th></tr></thead>
+            <tbody>
+              {orders.map((order) => (
+                <tr key={order.id}>
+                  <td><strong>{orderLabel(order)}</strong></td>
+                  <td>{order.user?.name || "Servimil"}</td>
+                  <td>
+                    <div className="order-products-cell">
+                      {order.items.map((item) => <span key={item.id}>{item.quantity}x {item.product_name}</span>)}
                     </div>
-                    {updateStatus && (
-                      <select value={order.status} onChange={(event) => updateStatus(order.id, event.target.value as OrderStatus)}>
-                        <option value="admin_payment_pending">Pago admin pendiente</option>
-                        <option value="provider_delivery_pending">Pendiente proveedor</option>
-                        <option value="processing">En proceso</option>
-                        <option value="delivered">Entregado</option>
-                        <option value="cancelled">Cancelado</option>
-                      </select>
-                    )}
-                    {saveOrderEdit && (
-                      <form className="order-edit-form" onSubmit={(event) => saveOrderEdit(order.id, event)}>
-                        <select name="status" defaultValue={order.status}>
-                          <option value="admin_payment_pending">Pago admin pendiente</option>
-                          <option value="provider_delivery_pending">Pendiente proveedor</option>
-                          <option value="processing">En proceso</option>
-                          <option value="delivered">Entregado</option>
-                          <option value="cancelled">Cancelado</option>
-                        </select>
-                        <input name="sale_total" type="number" defaultValue={order.sale_total || order.total || 0} placeholder="Total venta" />
-                        <input name="provider_total" type="number" defaultValue={order.provider_total || 0} placeholder="Total proveedor" />
-                        <input name="profit_total" type="number" defaultValue={order.profit_total || 0} placeholder="Utilidad" />
-                        <select name="payout_status" defaultValue={order.payout_status || "pending_admin_payment"}>
-                          <option value="pending_admin_payment">Pago admin pendiente</option>
-                          <option value="receipt_sent_to_provider">Comprobante gestionado</option>
-                          <option value="cancelled">Cancelado</option>
-                          <option value="failed">Fallido</option>
-                        </select>
-                        <button>Guardar cambios</button>
-                      </form>
-                    )}
-                    {saveDeliveredAccountEdit && order.items.some((item) => item.delivered_accounts?.length) && (
-                      <div className="delivered-admin-editor">
-                        <strong>Cuentas entregadas</strong>
-                        {order.items.flatMap((item) => (item.delivered_accounts || []).map((account, index) => (
-                          <form className="delivery-edit-form" key={account.id} onSubmit={(event) => saveDeliveredAccountEdit(account.id, event)}>
-                            <span>{item.product_name} #{index + 1}</span>
-                            <input name="delivered_email" defaultValue={account.delivered_email || ""} placeholder="Correo / usuario" />
-                            <input
-                              name="delivered_password"
-                              type="text"
-                              defaultValue={account.delivered_password === "***" ? "" : account.delivered_password || ""}
-                              placeholder={account.delivered_password === "***" ? "Reingresar contrasena real" : "Contrasena"}
-                            />
-                            <input name="screen_name" defaultValue={accountScreen(account.notes)} placeholder="Pantalla" />
-                            <input name="profile_name" defaultValue={account.profile_name || ""} placeholder="Perfil" />
-                            <input name="pin" defaultValue={account.pin || ""} placeholder="PIN" />
-                            <input name="notes" defaultValue={visibleAccountNotes(account.notes)} placeholder="Notas" />
-                            <button>Guardar cuenta</button>
-                          </form>
-                        )))}
-                      </div>
-                    )}
-                    {deleteOrder && !order.deleted_at && (
-                      <button className="danger-link" onClick={() => deleteOrder(order)} type="button">Eliminar a papelera</button>
-                    )}
-                  </details>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
+                  </td>
+                  <td>{money.format(order.sale_total || order.total)}</td>
+                  <td>{money.format(order.provider_total || 0)}</td>
+                  <td>{money.format(order.profit_total || 0)}</td>
+                  <td><StatusBadge status={order.status} /></td>
+                  <td>{formatDateTime(order.created_at)}</td>
+                  <td>
+                    <button className="detail-trigger" onClick={() => setSelectedOrderId(order.id)} type="button">
+                      {trashMode ? "Ver papelera" : "Ver detalle"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {selectedOrder && (
+        <AdminOrderDetailModal
+          order={selectedOrder}
+          updateStatus={updateStatus}
+          saveOrderEdit={saveOrderEdit}
+          saveDeliveredAccountEdit={saveDeliveredAccountEdit}
+          deleteOrder={deleteOrder}
+          trashMode={trashMode}
+          onClose={() => setSelectedOrderId(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function AdminOrderDetailModal({ order, updateStatus, saveOrderEdit, saveDeliveredAccountEdit, deleteOrder, trashMode, onClose }: {
+  order: Order;
+  updateStatus?: (orderId: string, status: OrderStatus) => void;
+  saveOrderEdit?: (orderId: string, event: FormEvent<HTMLFormElement>) => void;
+  saveDeliveredAccountEdit?: (deliveryId: string, event: FormEvent<HTMLFormElement>) => void;
+  deleteOrder?: (order: Order) => void;
+  trashMode?: boolean;
+  onClose: () => void;
+}) {
+  const deliveredAccounts = order.items.flatMap((item) => (item.delivered_accounts || []).map((account, index) => ({ item, account, index })));
+
+  return (
+    <div className="modal-backdrop detail-modal-backdrop" onClick={onClose}>
+      <section className="detail-modal admin-order-modal" onClick={(event) => event.stopPropagation()}>
+        <header className="admin-order-modal-head">
+          <div>
+            <span className="eyebrow">Detalle del pedido</span>
+            <h2>{orderLabel(order)}</h2>
+            <p>{order.user?.name || "Servimil"} - {formatDateTime(order.created_at)}</p>
+          </div>
+          <button className="btn-ghost" onClick={onClose}>Cerrar</button>
+        </header>
+
+        <div className="admin-order-summary-grid">
+          <Metric label="Venta cliente" value={money.format(order.sale_total || order.total)} />
+          <Metric label="Total proveedor" value={money.format(order.provider_total || 0)} />
+          <Metric label="Utilidad" value={money.format(order.profit_total || 0)} />
+          <article className="metric"><span>Estado</span><StatusBadge status={order.status} /></article>
+        </div>
+
+        <div className="admin-order-modal-grid">
+          <section className="admin-order-block">
+            <SectionTitle eyebrow="Productos" title="Solicitud" compact />
+            <div className="order-products-list">
+              {order.items.map((item) => (
+                <div key={item.id}>
+                  <strong>{item.quantity}x {item.product_name}</strong>
+                  <span>{item.delivered_accounts?.length || 0} entregada(s) de {item.quantity}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="admin-order-block">
+            <SectionTitle eyebrow="Actividad" title="Tiempos" compact />
+            <div className="timeline-cell">
+              <span>Pedido creado: {formatDateTime(order.created_at)}</span>
+              {order.deleted_at && <span>En papelera: {formatDateTime(order.deleted_at)} - {order.deleted_reason || "Sin motivo"}</span>}
+              <span>Admin notificado: {formatDateTime(order.admin_notified_at)} ({order.admin_notification_channel || "pendiente"})</span>
+              <span>Pago gestionado: {formatDateTime(order.provider_payment_marked_at)}</span>
+              <span>Cuenta procesada: {formatDateTime(order.delivery_processed_at)}</span>
+              <span>Cliente notificado: {formatDateTime(order.client_notified_at)}</span>
+              <span>Entregado: {formatDateTime(order.delivered_at)}</span>
+              <span>Proveedor: {order.provider?.name || "-"}</span>
+            </div>
+          </section>
+        </div>
+
+        {(updateStatus || saveOrderEdit) && !trashMode && (
+          <section className="admin-order-block">
+            <SectionTitle eyebrow="Pedido" title="Editar estado y valores" compact />
+            {updateStatus && !saveOrderEdit && (
+              <select value={order.status} onChange={(event) => updateStatus(order.id, event.target.value as OrderStatus)}>
+                <option value="admin_payment_pending">Pago admin pendiente</option>
+                <option value="provider_delivery_pending">Pendiente proveedor</option>
+                <option value="processing">En proceso</option>
+                <option value="delivered">Entregado</option>
+                <option value="cancelled">Cancelado</option>
+              </select>
+            )}
+            {saveOrderEdit && (
+              <form className="order-edit-form admin-order-edit-form" onSubmit={(event) => saveOrderEdit(order.id, event)}>
+                <label><span>Estado</span><select name="status" defaultValue={order.status}>
+                  <option value="admin_payment_pending">Pago admin pendiente</option>
+                  <option value="provider_delivery_pending">Pendiente proveedor</option>
+                  <option value="processing">En proceso</option>
+                  <option value="delivered">Entregado</option>
+                  <option value="cancelled">Cancelado</option>
+                </select></label>
+                <label><span>Total venta</span><input name="sale_total" type="number" defaultValue={order.sale_total || order.total || 0} placeholder="Total venta" /></label>
+                <label><span>Total proveedor</span><input name="provider_total" type="number" defaultValue={order.provider_total || 0} placeholder="Total proveedor" /></label>
+                <label><span>Utilidad</span><input name="profit_total" type="number" defaultValue={order.profit_total || 0} placeholder="Utilidad" /></label>
+                <label><span>Pago proveedor</span><select name="payout_status" defaultValue={order.payout_status || "pending_admin_payment"}>
+                  <option value="pending_admin_payment">Pago admin pendiente</option>
+                  <option value="receipt_sent_to_provider">Comprobante gestionado</option>
+                  <option value="cancelled">Cancelado</option>
+                  <option value="failed">Fallido</option>
+                </select></label>
+                <button className="btn-solid">Guardar cambios</button>
+              </form>
+            )}
+          </section>
+        )}
+
+        {saveDeliveredAccountEdit && deliveredAccounts.length > 0 && !trashMode && (
+          <section className="admin-order-block">
+            <SectionTitle eyebrow="Cuentas" title="Editar cuentas entregadas" compact />
+            <div className="delivered-admin-editor">
+              {deliveredAccounts.map(({ item, account, index }) => (
+                <form className="delivery-edit-form" key={account.id} onSubmit={(event) => saveDeliveredAccountEdit(account.id, event)}>
+                  <span>{item.product_name} #{index + 1}</span>
+                  <input name="delivered_email" defaultValue={account.delivered_email || ""} placeholder="Correo / usuario" />
+                  <input
+                    name="delivered_password"
+                    type="text"
+                    defaultValue={account.delivered_password === "***" ? "" : account.delivered_password || ""}
+                    placeholder={account.delivered_password === "***" ? "Reingresar contrasena real" : "Contrasena"}
+                  />
+                  <input name="screen_name" defaultValue={accountScreen(account.notes)} placeholder="Pantalla" />
+                  <input name="profile_name" defaultValue={account.profile_name || ""} placeholder="Perfil" />
+                  <input name="pin" defaultValue={account.pin || ""} placeholder="PIN" />
+                  <input name="notes" defaultValue={visibleAccountNotes(account.notes)} placeholder="Notas" />
+                  <button className="btn-solid">Guardar cuenta</button>
+                </form>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {deleteOrder && !order.deleted_at && !trashMode && (
+          <button className="danger-link admin-order-delete" onClick={() => deleteOrder(order)} type="button">Eliminar a papelera</button>
+        )}
+      </section>
+    </div>
   );
 }
 

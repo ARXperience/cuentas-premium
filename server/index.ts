@@ -214,15 +214,28 @@ function paramId(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value || '';
 }
 
-function keyBytes() {
-  if (!process.env.APP_ENCRYPTION_KEY) throw new Error('APP_ENCRYPTION_KEY es requerido.');
-  return crypto.createHash('sha256').update(process.env.APP_ENCRYPTION_KEY).digest();
+function keyBytes(secret?: string | null) {
+  if (!secret) throw new Error('APP_ENCRYPTION_KEY es requerido.');
+  return crypto.createHash('sha256').update(secret).digest();
+}
+
+function encryptionKeys() {
+  const primary = process.env.APP_ENCRYPTION_KEY;
+  if (!primary) throw new Error('APP_ENCRYPTION_KEY es requerido.');
+  const legacyKeys = [
+    process.env.APP_ENCRYPTION_KEY_PREVIOUS,
+    ...(process.env.APP_ENCRYPTION_LEGACY_KEYS || '')
+      .split(',')
+      .map((key) => key.trim())
+      .filter(Boolean)
+  ].filter(Boolean) as string[];
+  return [primary, ...legacyKeys.filter((key) => key !== primary)];
 }
 
 function encryptSecret(value?: string | null) {
   if (!value) return value || null;
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', keyBytes(), iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', keyBytes(process.env.APP_ENCRYPTION_KEY), iv);
   const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
   return `${iv.toString('base64')}.${tag.toString('base64')}.${encrypted.toString('base64')}`;
@@ -232,13 +245,16 @@ function decryptSecret(value?: string | null) {
   if (!value) return value || null;
   const [ivRaw, tagRaw, dataRaw] = value.split('.');
   if (!ivRaw || !tagRaw || !dataRaw) return value;
-  try {
-    const decipher = crypto.createDecipheriv('aes-256-gcm', keyBytes(), Buffer.from(ivRaw, 'base64'));
-    decipher.setAuthTag(Buffer.from(tagRaw, 'base64'));
-    return Buffer.concat([decipher.update(Buffer.from(dataRaw, 'base64')), decipher.final()]).toString('utf8');
-  } catch {
-    return '***';
+  for (const key of encryptionKeys()) {
+    try {
+      const decipher = crypto.createDecipheriv('aes-256-gcm', keyBytes(key), Buffer.from(ivRaw, 'base64'));
+      decipher.setAuthTag(Buffer.from(tagRaw, 'base64'));
+      return Buffer.concat([decipher.update(Buffer.from(dataRaw, 'base64')), decipher.final()]).toString('utf8');
+    } catch {
+      continue;
+    }
   }
+  return '***';
 }
 
 function publicUser(user: { id: string; name: string; email: string; role: Role; phone: string | null; created_at: Date }) {

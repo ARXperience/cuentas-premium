@@ -2217,6 +2217,15 @@ th {
   white-space: nowrap;
 }
 
+.table-secret-value {
+  display: inline-block;
+  max-width: 220px;
+  color: #0f172a;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .muted-cell {
   color: var(--text-muted);
   font-size: 12px;

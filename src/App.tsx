@@ -1237,7 +1237,7 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
                     <td>{deliveredUnits}</td>
                     <td>{money.format(totalValue)}</td>
                     <td><button className="table-copy" onClick={() => copy(account.delivered_email)}>{account.delivered_email || "-"}</button></td>
-                    <td><button className="table-copy" onClick={() => copy(account.delivered_password)}>Copiar</button></td>
+                    <td><span className="table-secret-value">{account.delivered_password || "-"}</span></td>
                     <td>{account.profile_name ? <button className="table-copy" onClick={() => copy(account.profile_name || "")}>{account.profile_name}</button> : "-"}</td>
                     <td>{account.pin ? <button className="table-copy" onClick={() => copy(account.pin || "")}>{account.pin}</button> : "-"}</td>
                     <td>{account.notes || "-"}</td>

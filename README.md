@@ -26,6 +26,8 @@ Plataforma full-stack para venta, gestion y entrega de servicios digitales de en
 DATABASE_URL=""
 JWT_SECRET=""
 APP_ENCRYPTION_KEY=""
+APP_ENCRYPTION_KEY_PREVIOUS=""
+APP_ENCRYPTION_LEGACY_KEYS=""
 WHATSAPP_PROVIDER_NUMBER=""
 ADMIN_NOTIFICATION_PHONE=""
 WHATSAPP_BRIDGE_ENABLED="true"
@@ -50,6 +52,7 @@ PORT=4002
 Notas:
 - `JWT_SECRET` debe ser fuerte y privado.
 - `APP_ENCRYPTION_KEY` debe ser estable porque protege contrasenas entregadas.
+- Si alguna cuenta fue cifrada con una llave anterior, configura `APP_ENCRYPTION_KEY_PREVIOUS` o varias llaves separadas por coma en `APP_ENCRYPTION_LEGACY_KEYS`. El backend intentara descifrar con esas llaves solo para usuarios autorizados.
 - Solo `VITE_API_URL` va al navegador.
 - `ADMIN_NOTIFICATION_PHONE` vive solo en backend y recibe los avisos de pedidos pendientes de pago.
 - La sesion Baileys se guarda cifrada en PostgreSQL; no requiere volumen persistente.
@@ -334,6 +337,8 @@ DATABASE_USE_POOLER="true"
 DATABASE_CONNECTION_LIMIT="5"
 JWT_SECRET="clave-larga-y-segura"
 APP_ENCRYPTION_KEY="clave-estable-de-32-caracteres-o-mas"
+APP_ENCRYPTION_KEY_PREVIOUS=""
+APP_ENCRYPTION_LEGACY_KEYS=""
 CORS_ORIGIN="https://tu-frontend.com"
 ADMIN_NOTIFICATION_PHONE=""
 ADMIN_NOTIFICATION_EMAIL=""
@@ -360,7 +365,7 @@ La primera vinculacion se realiza desde `Admin > WhatsApp admin > Iniciar vincul
 Escanea el QR con `WhatsApp > Dispositivos vinculados > Vincular dispositivo`.
 En produccion no se necesita Chrome, Puppeteer ni un volumen para la sesion.
 Baileys recupera el estado cifrado desde PostgreSQL después de cada reinicio o despliegue.
-`APP_ENCRYPTION_KEY` debe permanecer estable; cambiarla invalida la sesion guardada.
+`APP_ENCRYPTION_KEY` debe permanecer estable; cambiarla invalida la sesion guardada y puede ocultar contrasenas antiguas como `***`. Si ya cambiaste la llave y conoces la anterior, agregala en `APP_ENCRYPTION_KEY_PREVIOUS` o `APP_ENCRYPTION_LEGACY_KEYS`.
 
 Frontend:
 

@@ -1360,6 +1360,44 @@ details pre {
   width: 100%;
 }
 
+.delivered-admin-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.delivered-admin-editor > strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.delivery-edit-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.2fr) repeat(5, minmax(120px, 1fr)) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.8);
+}
+
+.delivery-edit-form span {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.delivery-edit-form input {
+  min-width: 0;
+}
+
+.delivery-edit-form button {
+  white-space: nowrap;
+}
+
 .metric {
   border-radius: 18px;
   padding: 18px;
@@ -2552,6 +2590,7 @@ th {
   .auth-role-grid,
   .mini-grid,
   .delivered-toolbar,
+  .delivery-edit-form,
   .account-access-grid,
   .cart-summary-row,
   .detail-specs,

@@ -1790,6 +1790,50 @@ app.patch('/api/admin/orders/:id', sensitiveLimiter, requireAuth, requireRole('a
   }
 });
 
+const adminDeliveryEditSchema = z.object({
+  delivered_email: z.string().trim().min(3).optional(),
+  delivered_password: z.string().trim().optional(),
+  profile_name: z.string().trim().optional(),
+  pin: z.string().trim().optional(),
+  notes: z.string().trim().optional()
+});
+
+app.patch('/api/admin/deliveries/:id', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
+  try {
+    const input = adminDeliveryEditSchema.parse(req.body);
+    if (input.delivered_password === '***') {
+      return res.status(400).json({ message: 'Ingresa la contrasena real. No se puede guardar *** como contrasena.' });
+    }
+    const delivery = await prisma.deliveredAccount.findUniqueOrThrow({
+      where: { id: paramId(req.params.id) },
+      include: { order: { include: { user: true, provider: true, items: { include: { product: true } }, deliveries: { include: { product: true } }, payments: true, providerPayouts: true } } }
+    });
+    if (delivery.order.deleted_at) return res.status(400).json({ message: 'Este pedido esta en la papelera.' });
+
+    const data: Record<string, string | null> = {};
+    if (input.delivered_email !== undefined) data.delivered_email = input.delivered_email || null;
+    if (input.delivered_password) data.delivered_password = encryptSecret(input.delivered_password);
+    if (input.profile_name !== undefined) data.profile_name = input.profile_name || null;
+    if (input.pin !== undefined) data.pin = input.pin || null;
+    if (input.notes !== undefined) data.notes = input.notes || null;
+
+    if (!Object.keys(data).length) return res.status(400).json({ message: 'No hay cambios para guardar.' });
+
+    await prisma.deliveredAccount.update({
+      where: { id: delivery.id },
+      data
+    });
+    const updatedOrder = await prisma.order.findUniqueOrThrow({
+      where: { id: delivery.order_id },
+      include: { user: true, provider: true, items: { include: { product: true } }, deliveries: { include: { product: true } }, payments: true, providerPayouts: true }
+    });
+    await addMovement('account.updated_by_admin', `Admin actualizo datos de cuenta entregada en orden ${updatedOrder.order_number}.`, req.user!.id, updatedOrder.id);
+    res.json({ order: serializeOrder(updatedOrder, req.user), message: 'Cuenta entregada actualizada.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.delete('/api/admin/orders/:id', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
   try {
     const order = await prisma.order.findUniqueOrThrow({

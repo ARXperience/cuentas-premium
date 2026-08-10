@@ -32,6 +32,12 @@ function orderLabel(order?: Pick<Order, "id" | "order_number"> | null) {
   return order?.order_number || (order?.id ? `#${order.id.slice(0, 8)}` : "-");
 }
 
+function readablePassword(value?: string | null) {
+  if (!value) return "-";
+  if (value === "***") return "Pendiente de actualizacion";
+  return value;
+}
+
 function normalizePhoneForCompare(value?: string | null) {
   const digits = String(value || "").replace(/[^\d]/g, "");
   if (digits.length === 10 && digits.startsWith("3")) return `57${digits}`;
@@ -499,6 +505,28 @@ function App() {
     await refreshAdminData();
   }
 
+  async function saveDeliveredAccountEdit(deliveryId: string, event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get("delivered_password") || "").trim();
+    if (password === "***") {
+      setNotice("Ingresa la contrasena real de la cuenta. No se puede guardar ***.");
+      return;
+    }
+    await request(`/api/admin/deliveries/${deliveryId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        delivered_email: form.get("delivered_email"),
+        delivered_password: password || undefined,
+        profile_name: form.get("profile_name"),
+        pin: form.get("pin"),
+        notes: form.get("notes")
+      })
+    });
+    setNotice("Cuenta entregada actualizada. El cliente vera la contrasena real al abrir el pedido.");
+    await refreshAdminData();
+  }
+
   async function saveProduct(event: FormEvent<HTMLFormElement>, product?: Product) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -776,7 +804,7 @@ function App() {
       {view === "cart" && user?.role === "client" && <CartPage cart={cart} total={cartTotal} changeQuantity={changeQuantity} removeFromCart={removeFromCart} checkout={checkout} busy={busy} onContinueShopping={() => setView("catalog")} />}
       {view === "client" && user?.role === "client" && <ClientPanel user={user} orders={orders} notifications={notifications} unreadNotifications={unreadNotifications} markNotificationRead={markNotificationRead} cancelOrder={cancelClientOrder} copy={copy} goToCatalog={() => setView("catalog")} />}
       {view === "provider" && user?.role === "provider" && <ProviderPanel orders={orders} deliveries={providerDeliveries} deliver={deliver} busy={busy} />}
-      {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} trashedOrders={trashedOrders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} notifications={notifications} unreadNotifications={unreadNotifications} adminLogs={adminLogs} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} cancelPayout={cancelPayout} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} markNotificationRead={markNotificationRead} deleteOrder={deleteAdminOrder} copy={copy} />}
+      {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} trashedOrders={trashedOrders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} notifications={notifications} unreadNotifications={unreadNotifications} adminLogs={adminLogs} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} cancelPayout={cancelPayout} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} saveDeliveredAccountEdit={saveDeliveredAccountEdit} markNotificationRead={markNotificationRead} deleteOrder={deleteAdminOrder} copy={copy} />}
 
       <AddedProductModal
         product={selectedAddedProduct}
@@ -1237,7 +1265,7 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
                     <td>{deliveredUnits}</td>
                     <td>{money.format(totalValue)}</td>
                     <td><button className="table-copy" onClick={() => copy(account.delivered_email)}>{account.delivered_email || "-"}</button></td>
-                    <td><span className="table-secret-value">{account.delivered_password || "-"}</span></td>
+                    <td><span className="table-secret-value">{readablePassword(account.delivered_password)}</span></td>
                     <td>{account.profile_name ? <button className="table-copy" onClick={() => copy(account.profile_name || "")}>{account.profile_name}</button> : "-"}</td>
                     <td>{account.pin ? <button className="table-copy" onClick={() => copy(account.pin || "")}>{account.pin}</button> : "-"}</td>
                     <td>{account.notes || "-"}</td>
@@ -1325,7 +1353,7 @@ function AccountsModal({ order, onClose }: { order: Order | null; onClose: () =>
                 <div className="account-detail-field"><span>Cantidad</span><strong>{deliveredUnits}</strong></div>
                 <div className="account-detail-field"><span>Valor</span><strong>{money.format(totalValue)}</strong></div>
                 <div className="account-detail-field"><span>Usuario</span><strong>{account.delivered_email || "-"}</strong></div>
-                <div className="account-detail-field"><span>Contrasena</span><strong>{account.delivered_password || "-"}</strong></div>
+                <div className="account-detail-field"><span>Contrasena</span><strong>{readablePassword(account.delivered_password)}</strong></div>
                 <div className="account-detail-field"><span>Perfil</span><strong>{account.profile_name || "-"}</strong></div>
                 <div className="account-detail-field"><span>PIN</span><strong>{account.pin || "-"}</strong></div>
               </div>
@@ -1560,7 +1588,7 @@ function OrderWorkCard({ order, deliver, busy }: {
   );
 }
 
-function AdminPanel({ dashboard, users, products, orders, trashedOrders, pendingDeliveryOrders, pendingPayouts, providerConfig, whatsappStatus, whatsappQr, emailStatus, notifications, unreadNotifications, adminLogs, savingProductId, saveProduct, saveProviderConfig, saveAdminNotificationConfig, saveEmailConfig, testAdminEmail, connectWhatsApp, retryWhatsAppFailed, disconnectWhatsApp, testAdminWhatsApp, markReceiptSent, cancelPayout, previewDeliveryMessage, approveParsedDelivery, saveDeliveryDraft, updateStatus, saveOrderEdit, markNotificationRead, deleteOrder, copy }: {
+function AdminPanel({ dashboard, users, products, orders, trashedOrders, pendingDeliveryOrders, pendingPayouts, providerConfig, whatsappStatus, whatsappQr, emailStatus, notifications, unreadNotifications, adminLogs, savingProductId, saveProduct, saveProviderConfig, saveAdminNotificationConfig, saveEmailConfig, testAdminEmail, connectWhatsApp, retryWhatsAppFailed, disconnectWhatsApp, testAdminWhatsApp, markReceiptSent, cancelPayout, previewDeliveryMessage, approveParsedDelivery, saveDeliveryDraft, updateStatus, saveOrderEdit, saveDeliveredAccountEdit, markNotificationRead, deleteOrder, copy }: {
   dashboard: Dashboard | null;
   users: User[];
   products: Product[];
@@ -1592,6 +1620,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   saveDeliveryDraft: (orderId: string, rawText: string, preview: DeliveryParserPreview) => Promise<void>;
   updateStatus: (orderId: string, status: OrderStatus) => void;
   saveOrderEdit: (orderId: string, event: FormEvent<HTMLFormElement>) => void;
+  saveDeliveredAccountEdit: (deliveryId: string, event: FormEvent<HTMLFormElement>) => void;
   markNotificationRead: (notificationId: string) => void;
   deleteOrder: (order: Order) => void;
   copy: (text?: string | null) => void;
@@ -1851,7 +1880,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
         </div>
       )}
       <div className="admin-module-content">
-        {adminModule === "orders" && <OrderTable orders={orders} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} deleteOrder={deleteOrder} title="Pedidos" />}
+        {adminModule === "orders" && <OrderTable orders={orders} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} saveDeliveredAccountEdit={saveDeliveredAccountEdit} deleteOrder={deleteOrder} title="Pedidos" />}
         {adminModule === "process" && processAccountsModule}
         {adminModule === "payouts" && (
           <section className="glass-panel payments-panel admin-module-panel">
@@ -1936,7 +1965,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
                 <Metric label="Cuentas entregadas" value={servimilDeliveredAccounts.length} />
               </div>
             </section>
-            <OrderTable orders={servimilOrders} title="Historial de pedidos Servimil" />
+            <OrderTable orders={servimilOrders} title="Historial de pedidos Servimil" saveDeliveredAccountEdit={saveDeliveredAccountEdit} />
             <section className="glass-panel">
               <SectionTitle eyebrow="Liquidacion" title="Historial mensual" compact />
               <div className="table-scroll">
@@ -2109,10 +2138,11 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   );
 }
 
-function OrderTable({ orders, updateStatus, saveOrderEdit, deleteOrder, title = "Historial", trashMode = false }: {
+function OrderTable({ orders, updateStatus, saveOrderEdit, saveDeliveredAccountEdit, deleteOrder, title = "Historial", trashMode = false }: {
   orders: Order[];
   updateStatus?: (orderId: string, status: OrderStatus) => void;
   saveOrderEdit?: (orderId: string, event: FormEvent<HTMLFormElement>) => void;
+  saveDeliveredAccountEdit?: (deliveryId: string, event: FormEvent<HTMLFormElement>) => void;
   deleteOrder?: (order: Order) => void;
   title?: string;
   trashMode?: boolean;
@@ -2176,6 +2206,27 @@ function OrderTable({ orders, updateStatus, saveOrderEdit, deleteOrder, title = 
                         </select>
                         <button>Guardar cambios</button>
                       </form>
+                    )}
+                    {saveDeliveredAccountEdit && order.items.some((item) => item.delivered_accounts?.length) && (
+                      <div className="delivered-admin-editor">
+                        <strong>Cuentas entregadas</strong>
+                        {order.items.flatMap((item) => (item.delivered_accounts || []).map((account, index) => (
+                          <form className="delivery-edit-form" key={account.id} onSubmit={(event) => saveDeliveredAccountEdit(account.id, event)}>
+                            <span>{item.product_name} #{index + 1}</span>
+                            <input name="delivered_email" defaultValue={account.delivered_email || ""} placeholder="Correo / usuario" />
+                            <input
+                              name="delivered_password"
+                              type="text"
+                              defaultValue={account.delivered_password === "***" ? "" : account.delivered_password || ""}
+                              placeholder={account.delivered_password === "***" ? "Reingresar contrasena real" : "Contrasena"}
+                            />
+                            <input name="profile_name" defaultValue={account.profile_name || ""} placeholder="Perfil" />
+                            <input name="pin" defaultValue={account.pin || ""} placeholder="PIN" />
+                            <input name="notes" defaultValue={account.notes || ""} placeholder="Notas" />
+                            <button>Guardar cuenta</button>
+                          </form>
+                        )))}
+                      </div>
                     )}
                     {deleteOrder && !order.deleted_at && (
                       <button className="danger-link" onClick={() => deleteOrder(order)} type="button">Eliminar a papelera</button>

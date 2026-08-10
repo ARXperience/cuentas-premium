@@ -219,6 +219,20 @@ function decryptSecret(value) {
     }
     return '***';
 }
+function extractScreenFromNotes(value) {
+    return String(value || '').match(/(?:^|\n)Pantalla:\s*(.+?)(?=\n|$)/i)?.[1]?.trim() || '';
+}
+function notesWithoutScreen(value) {
+    return String(value || '')
+        .replace(/(?:^|\n)Pantalla:\s*.+?(?=\n|$)/gi, '')
+        .trim();
+}
+function buildAccountNotes(screenName, notes) {
+    return [
+        screenName?.trim() ? `Pantalla: ${screenName.trim()}` : '',
+        notes?.trim() || ''
+    ].filter(Boolean).join('\n') || null;
+}
 function publicUser(user) {
     return { id: user.id, name: user.name, email: user.email, role: user.role, phone: user.phone, created_at: user.created_at };
 }
@@ -1644,6 +1658,7 @@ app.patch('/api/admin/orders/:id', sensitiveLimiter, requireAuth, requireRole('a
 const adminDeliveryEditSchema = z.object({
     delivered_email: z.string().trim().min(3).optional(),
     delivered_password: z.string().trim().optional(),
+    screen_name: z.string().trim().optional(),
     profile_name: z.string().trim().optional(),
     pin: z.string().trim().optional(),
     notes: z.string().trim().optional()
@@ -1665,12 +1680,15 @@ app.patch('/api/admin/deliveries/:id', sensitiveLimiter, requireAuth, requireRol
             data.delivered_email = input.delivered_email || null;
         if (input.delivered_password)
             data.delivered_password = encryptSecret(input.delivered_password);
+        if (input.screen_name !== undefined || input.notes !== undefined) {
+            const nextScreen = input.screen_name !== undefined ? input.screen_name : extractScreenFromNotes(delivery.notes);
+            const nextNotes = input.notes !== undefined ? input.notes : notesWithoutScreen(delivery.notes);
+            data.notes = buildAccountNotes(nextScreen, nextNotes);
+        }
         if (input.profile_name !== undefined)
             data.profile_name = input.profile_name || null;
         if (input.pin !== undefined)
             data.pin = input.pin || null;
-        if (input.notes !== undefined)
-            data.notes = input.notes || null;
         if (!Object.keys(data).length)
             return res.status(400).json({ message: 'No hay cambios para guardar.' });
         await prisma.deliveredAccount.update({

@@ -38,6 +38,16 @@ function readablePassword(value?: string | null) {
   return value;
 }
 
+function accountScreen(value?: string | null) {
+  return String(value || "").match(/(?:^|\n)Pantalla:\s*(.+?)(?=\n|$)/i)?.[1]?.trim() || "";
+}
+
+function visibleAccountNotes(value?: string | null) {
+  return String(value || "")
+    .replace(/(?:^|\n)Pantalla:\s*.+?(?=\n|$)/gi, "")
+    .trim();
+}
+
 function normalizePhoneForCompare(value?: string | null) {
   const digits = String(value || "").replace(/[^\d]/g, "");
   if (digits.length === 10 && digits.startsWith("3")) return `57${digits}`;
@@ -518,6 +528,7 @@ function App() {
       body: JSON.stringify({
         delivered_email: form.get("delivered_email"),
         delivered_password: password || undefined,
+        screen_name: form.get("screen_name"),
         profile_name: form.get("profile_name"),
         pin: form.get("pin"),
         notes: form.get("notes")
@@ -1253,7 +1264,7 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
           <div className="table-scroll delivered-table">
             <table>
               <thead>
-                <tr><th>Orden</th><th>Compra</th><th>Entrega</th><th>Servicio</th><th>Cant.</th><th>Valor</th><th>Correo / usuario</th><th>Contrasena</th><th>Perfil</th><th>PIN</th><th>Notas</th></tr>
+                <tr><th>Orden</th><th>Compra</th><th>Entrega</th><th>Servicio</th><th>Cant.</th><th>Valor</th><th>Correo / usuario</th><th>Contrasena</th><th>Pantalla</th><th>Perfil</th><th>PIN</th><th>Notas</th></tr>
               </thead>
               <tbody>
                 {filteredDeliveries.map(({ order, item, account, deliveredUnits, totalValue }) => (
@@ -1266,9 +1277,10 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
                     <td>{money.format(totalValue)}</td>
                     <td><button className="table-copy" onClick={() => copy(account.delivered_email)}>{account.delivered_email || "-"}</button></td>
                     <td><span className="table-secret-value">{readablePassword(account.delivered_password)}</span></td>
+                    <td>{accountScreen(account.notes) || "-"}</td>
                     <td>{account.profile_name ? <button className="table-copy" onClick={() => copy(account.profile_name || "")}>{account.profile_name}</button> : "-"}</td>
                     <td>{account.pin ? <button className="table-copy" onClick={() => copy(account.pin || "")}>{account.pin}</button> : "-"}</td>
-                    <td>{account.notes || "-"}</td>
+                    <td>{visibleAccountNotes(account.notes) || "-"}</td>
                   </tr>
                 ))}
                 {filteredDeliveries.length === 0 && <tr><td colSpan={11}>Cuando el proveedor cargue las cuentas apareceran aqui.</td></tr>}
@@ -1354,10 +1366,11 @@ function AccountsModal({ order, onClose }: { order: Order | null; onClose: () =>
                 <div className="account-detail-field"><span>Valor</span><strong>{money.format(totalValue)}</strong></div>
                 <div className="account-detail-field"><span>Usuario</span><strong>{account.delivered_email || "-"}</strong></div>
                 <div className="account-detail-field"><span>Contrasena</span><strong>{readablePassword(account.delivered_password)}</strong></div>
+                <div className="account-detail-field"><span>Pantalla</span><strong>{accountScreen(account.notes) || "-"}</strong></div>
                 <div className="account-detail-field"><span>Perfil</span><strong>{account.profile_name || "-"}</strong></div>
                 <div className="account-detail-field"><span>PIN</span><strong>{account.pin || "-"}</strong></div>
               </div>
-              {account.notes && <p>{account.notes}</p>}
+              {visibleAccountNotes(account.notes) && <p>{visibleAccountNotes(account.notes)}</p>}
             </article>
           ))}
         </div>
@@ -2220,9 +2233,10 @@ function OrderTable({ orders, updateStatus, saveOrderEdit, saveDeliveredAccountE
                               defaultValue={account.delivered_password === "***" ? "" : account.delivered_password || ""}
                               placeholder={account.delivered_password === "***" ? "Reingresar contrasena real" : "Contrasena"}
                             />
+                            <input name="screen_name" defaultValue={accountScreen(account.notes)} placeholder="Pantalla" />
                             <input name="profile_name" defaultValue={account.profile_name || ""} placeholder="Perfil" />
                             <input name="pin" defaultValue={account.pin || ""} placeholder="PIN" />
-                            <input name="notes" defaultValue={account.notes || ""} placeholder="Notas" />
+                            <input name="notes" defaultValue={visibleAccountNotes(account.notes)} placeholder="Notas" />
                             <button>Guardar cuenta</button>
                           </form>
                         )))}

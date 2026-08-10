@@ -1375,7 +1375,7 @@ details pre {
 
 .delivery-edit-form {
   display: grid;
-  grid-template-columns: minmax(150px, 1.2fr) repeat(5, minmax(120px, 1fr)) auto;
+  grid-template-columns: minmax(150px, 1.2fr) repeat(6, minmax(120px, 1fr)) auto;
   gap: 8px;
   align-items: center;
   padding: 10px;

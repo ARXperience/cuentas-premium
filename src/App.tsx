@@ -1643,8 +1643,13 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   const [parserRawText, setParserRawText] = useState("");
   const [parserPreview, setParserPreview] = useState<DeliveryParserPreview | null>(null);
   const selectedParserOrder = pendingOrders.find((order) => order.id === parserOrderId);
-  const compatiblePreviewItems = parserPreview?.items.filter((item) => !item.incompatible && item.matchedOrderItemId && item.matchedProductId) || [];
-  const incompatiblePreviewItems = parserPreview?.items.filter((item) => item.incompatible || !item.matchedOrderItemId || !item.matchedProductId) || [];
+  const previewItems = parserPreview?.items || [];
+  const readyPreviewItems = previewItems.filter((item) =>
+    item.matchedOrderItemId
+    && item.matchedProductId
+    && (item.delivered_email || item.delivered_user)
+    && item.delivered_password
+  );
 
   async function interpretDeliveryMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1664,9 +1669,51 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
     });
   }
 
+  function pendingQuantityForOrderItem(orderItem: OrderItem) {
+    return orderItem.pending_quantity ?? Math.max(orderItem.quantity - (orderItem.delivered_accounts?.length || 0), 0);
+  }
+
+  function manualItemForOrder(orderItem?: OrderItem): DeliveryParserItem {
+    return {
+      serviceName: orderItem?.product_name || "Cuenta manual",
+      matchedOrderItemId: orderItem?.id,
+      matchedProductId: orderItem?.product_id,
+      delivered_email: "",
+      delivered_password: "",
+      profile_name: "",
+      pin: "",
+      notes: "",
+      confidence: 0,
+      needsReview: true,
+      incompatible: false
+    };
+  }
+
+  function addManualPreviewItem() {
+    if (!selectedParserOrder) return;
+    const firstPendingItem = selectedParserOrder.items.find((item) => pendingQuantityForOrderItem(item) > 0) || selectedParserOrder.items[0];
+    setParserPreview((current) => ({
+      confidence: current?.confidence || 0,
+      warnings: current?.warnings || ["Carga manual iniciada. Asigna el producto y completa los datos de acceso."],
+      items: [...(current?.items || []), manualItemForOrder(firstPendingItem)]
+    }));
+  }
+
+  function assignPreviewItemToOrderItem(index: number, orderItemId: string) {
+    const orderItem = selectedParserOrder?.items.find((item) => item.id === orderItemId);
+    updatePreviewItem(index, {
+      serviceName: orderItem?.product_name || "Cuenta manual",
+      matchedOrderItemId: orderItem?.id,
+      matchedProductId: orderItem?.product_id,
+      needsReview: !orderItem,
+      incompatible: false,
+      incompatibleReason: undefined
+    });
+  }
+
   async function approvePreview() {
     if (!parserPreview || !parserOrderId) return;
-    await approveParsedDelivery(parserOrderId, parserRawText, compatiblePreviewItems);
+    await approveParsedDelivery(parserOrderId, parserRawText || "Carga manual de cuentas", readyPreviewItems);
     setParserPreview(null);
     setParserRawText("");
   }
@@ -1751,6 +1798,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
           required
         />
         <button className="btn-solid" disabled={!selectedParserOrder || !parserRawText.trim()}>Interpretar mensaje</button>
+        <button type="button" className="btn-ghost" disabled={!selectedParserOrder} onClick={addManualPreviewItem}>Agregar cuenta manual</button>
       </form>
       {parserPreview && (
         <div className="preview-panel">
@@ -1760,51 +1808,63 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
               {parserPreview.warnings.map((warning) => <span key={warning}>{warning}</span>)}
             </div>
           )}
-          <SectionTitle eyebrow="Vista previa" title="Cuentas compatibles detectadas" compact />
+          <SectionTitle eyebrow="Vista previa editable" title="Cuentas detectadas o carga manual" compact />
           <div className="data-list">
-            {compatiblePreviewItems.length === 0 && <p className="empty">No hay cuentas compatibles con la orden seleccionada.</p>}
-            {compatiblePreviewItems.map((item, index) => {
-              const originalIndex = parserPreview.items.indexOf(item);
+            {previewItems.length === 0 && <p className="empty">No se detectaron cuentas. Usa "Agregar cuenta manual" para completarlas.</p>}
+            {previewItems.map((item, index) => {
+              const isReady = Boolean(item.matchedOrderItemId && item.matchedProductId && (item.delivered_email || item.delivered_user) && item.delivered_password);
+              const selectedOrderItem = selectedParserOrder?.items.find((orderItem) => orderItem.id === item.matchedOrderItemId);
               return (
-                <article className="inline-product" key={`${item.serviceName}-${index}`}>
-                  <strong>{item.serviceName} - {item.needsReview ? "Requiere revision" : "Listo"} - {item.confidence}%</strong>
-                  <select value={item.matchedOrderItemId || ""} onChange={(event) => {
-                    const orderItem = selectedParserOrder?.items.find((orderItem) => orderItem.id === event.target.value);
-                    updatePreviewItem(originalIndex, { matchedOrderItemId: orderItem?.id, matchedProductId: orderItem?.product_id, needsReview: false, incompatible: false, incompatibleReason: undefined });
-                  }}>
-                    <option value="">Producto relacionado</option>
+                <article className={`inline-product parser-account-card ${isReady ? "ready-product" : "needs-review-product"}`} key={`${item.serviceName}-${index}`}>
+                  <div className="parser-account-head">
+                    <strong>{selectedOrderItem?.product_name || item.serviceName}</strong>
+                    <span>{isReady ? "Lista para entregar" : "Completa los datos"} - {item.confidence}%</span>
+                    {item.incompatibleReason && <em>{item.incompatibleReason}</em>}
+                  </div>
+                  <label>
+                    Producto del pedido
+                    <select value={item.matchedOrderItemId || ""} onChange={(event) => assignPreviewItemToOrderItem(index, event.target.value)}>
+                      <option value="">Selecciona producto</option>
                     {selectedParserOrder?.items.map((orderItem) => (
                       <option key={orderItem.id} value={orderItem.id}>{orderItem.quantity}x {orderItem.product_name}</option>
                     ))}
-                  </select>
+                    </select>
+                  </label>
                   <div className="mini-grid">
-                    <input value={item.delivered_email || item.delivered_user || ""} onChange={(event) => updatePreviewItem(originalIndex, { delivered_email: event.target.value })} placeholder="Correo / usuario" />
-                    <input value={item.delivered_password || ""} onChange={(event) => updatePreviewItem(originalIndex, { delivered_password: event.target.value })} placeholder="Contrasena" />
+                    <label>
+                      Correo / usuario
+                      <input value={item.delivered_email || item.delivered_user || ""} onChange={(event) => updatePreviewItem(index, { delivered_email: event.target.value, delivered_user: "" })} placeholder="correo@servicio.com o usuario" />
+                    </label>
+                    <label>
+                      Contrasena
+                      <input value={item.delivered_password || ""} onChange={(event) => updatePreviewItem(index, { delivered_password: event.target.value })} placeholder="Contrasena real" />
+                    </label>
                   </div>
                   <div className="mini-grid">
-                    <input value={item.profile_name || ""} onChange={(event) => updatePreviewItem(originalIndex, { profile_name: event.target.value })} placeholder="Perfil" />
-                    <input value={item.pin || ""} onChange={(event) => updatePreviewItem(originalIndex, { pin: event.target.value })} placeholder="PIN" />
+                    <label>
+                      Perfil / pantalla
+                      <input value={item.profile_name || ""} onChange={(event) => updatePreviewItem(index, { profile_name: event.target.value })} placeholder="Perfil o pantalla" />
+                    </label>
+                    <label>
+                      PIN
+                      <input value={item.pin || ""} onChange={(event) => updatePreviewItem(index, { pin: event.target.value })} placeholder="PIN" />
+                    </label>
                   </div>
-                  <input value={item.iptv_url || ""} onChange={(event) => updatePreviewItem(originalIndex, { iptv_url: event.target.value })} placeholder="URL IPTV" />
-                  <textarea value={item.notes || ""} onChange={(event) => updatePreviewItem(originalIndex, { notes: event.target.value })} placeholder="Notas" />
+                  <label>
+                    URL IPTV o enlace
+                    <input value={item.iptv_url || ""} onChange={(event) => updatePreviewItem(index, { iptv_url: event.target.value })} placeholder="URL IPTV o enlace si aplica" />
+                  </label>
+                  <label>
+                    Notas
+                    <textarea value={item.notes || ""} onChange={(event) => updatePreviewItem(index, { notes: event.target.value })} placeholder="Notas o instrucciones" />
+                  </label>
                 </article>
               );
             })}
           </div>
-          <SectionTitle eyebrow="Advertencias" title="Cuentas no compatibles" compact />
-          <div className="data-list">
-            {incompatiblePreviewItems.length === 0 && <p className="empty">No se detectaron cuentas fuera de esta orden.</p>}
-            {incompatiblePreviewItems.map((item, index) => (
-              <article className="inline-product incompatible-product" key={`${item.serviceName}-incompatible-${index}`}>
-                <strong>{item.serviceName} - No compatible</strong>
-                <span>{item.incompatibleReason || "Este servicio no pertenece a la orden seleccionada."}</span>
-                <span>Confianza: {item.confidence}%</span>
-                {(item.delivered_email || item.delivered_user) && <span>Usuario detectado: {item.delivered_email || item.delivered_user}</span>}
-              </article>
-            ))}
-          </div>
           <div className="status-actions">
-            <button onClick={approvePreview} disabled={compatiblePreviewItems.length === 0}>Aprobar y entregar al cliente</button>
+            <button onClick={approvePreview} disabled={readyPreviewItems.length === 0}>Aprobar {readyPreviewItems.length} cuenta(s) y entregar al cliente</button>
+            <button onClick={addManualPreviewItem} disabled={!selectedParserOrder}>Agregar otra cuenta manual</button>
             <button onClick={savePreviewAsDraft}>Guardar borrador</button>
             <button onClick={() => setParserPreview(null)}>Cancelar</button>
           </div>

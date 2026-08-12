@@ -2186,9 +2186,12 @@ app.post('/api/admin/delivery-parser/approve', sensitiveLimiter, requireAuth, re
             return res.status(400).json({ message: 'Esta orden ya no esta pendiente de entrega.' });
         if (!isServimilUser(order.user))
             return res.status(403).json({ message: 'Solo se pueden aprobar entregas de Servimil.' });
-        const compatibleItems = input.items.filter((item) => !item.incompatible && item.matchedOrderItemId && item.matchedProductId);
+        const compatibleItems = input.items.filter((item) => item.matchedOrderItemId
+            && item.matchedProductId
+            && (item.delivered_email || item.delivered_user)
+            && item.delivered_password);
         if (!compatibleItems.length)
-            return res.status(400).json({ message: 'No hay cuentas compatibles con la orden seleccionada para aprobar.' });
+            return res.status(400).json({ message: 'No hay cuentas completas para aprobar. Asigna el producto y completa usuario/correo y contrasena.' });
         const { updated, created } = await createDeliveriesFromAdminItems(order, compatibleItems, req.user.id);
         if (!created)
             return res.status(400).json({ message: 'No se crearon entregas nuevas. Revisa duplicados o productos ya entregados.' });

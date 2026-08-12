@@ -1272,6 +1272,77 @@ textarea {
   gap: 14px;
 }
 
+.preview-panel .data-list {
+  display: grid;
+  gap: 12px;
+}
+
+.parser-account-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.1fr) minmax(220px, 0.9fr);
+  gap: 12px;
+  align-items: stretch;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.parser-account-card label {
+  display: grid;
+  gap: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.parser-account-card input,
+.parser-account-card select,
+.parser-account-card textarea {
+  font-size: 14px;
+}
+
+.parser-account-card textarea {
+  min-height: 74px;
+}
+
+.parser-account-head {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-height: 100%;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.95);
+  border-left: 4px solid rgba(14, 165, 233, 0.5);
+}
+
+.parser-account-head strong,
+.parser-account-head span,
+.parser-account-head em {
+  display: block;
+}
+
+.parser-account-head span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.parser-account-head em {
+  color: #b45309;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.ready-product .parser-account-head {
+  border-left-color: #10b981;
+  background: rgba(236, 253, 245, 0.72);
+}
+
+.needs-review-product .parser-account-head {
+  border-left-color: #f59e0b;
+  background: rgba(255, 251, 235, 0.76);
+}
+
 .order-detail-box {
   display: grid;
   gap: 8px;
@@ -2719,13 +2790,31 @@ th {
   grid-column: span 3;
 }
 
+.product-form.parser-form {
+  grid-template-columns: 1fr;
+}
+
+.product-form.parser-form .btn-solid,
+.product-form.parser-form .btn-ghost {
+  grid-column: auto;
+}
+
 .inline-product {
   grid-template-columns: repeat(4, minmax(140px, 1fr));
   align-items: center;
 }
 
+.inline-product.parser-account-card {
+  grid-template-columns: minmax(220px, 1.1fr) minmax(220px, 0.9fr);
+  align-items: stretch;
+}
+
 .inline-product textarea {
   min-height: 50px;
+}
+
+.inline-product.parser-account-card textarea {
+  min-height: 74px;
 }
 
 .footer {
@@ -2798,6 +2887,10 @@ th {
   .cart-summary-row,
   .detail-specs,
   .modal-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-product.parser-account-card {
     grid-template-columns: 1fr;
   }
 

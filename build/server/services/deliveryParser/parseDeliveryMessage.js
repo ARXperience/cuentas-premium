@@ -1,7 +1,7 @@
 import { deliveryServiceFromText } from './serviceAliases.js';
 const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const urlRegex = /https?:\/\/\S+/i;
-const allKeyPattern = '(?:correo|email|mail|usuario|user|login|cuenta|contrasena|clave|password|pass|pwd|perfil|profile|pin|url|link|enlace|nota|notas|observacion|observaciones)';
+const allKeyPattern = '(?:correo|email|mail|usuario|user|login|cuenta|account|servicio|service|contrasena|clave|password|pass|pwd|perfil|profile|pantalla|pin|url|link|enlace|nota|notas|observacion|observaciones)';
 function cleanText(rawText) {
     return rawText
         .replace(/Ã±/gi, 'n')
@@ -28,8 +28,24 @@ function tidyValue(value) {
 }
 function field(block, labels) {
     const labelPattern = labelAlternates(labels);
-    const sameLine = block.match(new RegExp(`(?:^|[\\n\\s;,])(?:${labelPattern})\\s*(?:[:=\\-]|es)?\\s*([^\\n;]+?)(?=\\s+${allKeyPattern}\\s*(?:[:=\\-]|es)?|$)`, 'i'));
-    return tidyValue(sameLine?.[1]);
+    const sameLine = block.match(new RegExp(`(?:^|[\\n\\s;,])(?:${labelPattern})(?=\\s|[:=\\-]|$)\\s*(?:[:=\\-]|es)\\s*([^\\n;]+?)(?=\\s+${allKeyPattern}\\s*(?:[:=\\-]|es)?|$)`, 'i'));
+    const sameLineValue = tidyValue(sameLine?.[1]);
+    if (sameLineValue)
+        return sameLineValue;
+    const lines = block.split(/\n/).map((line) => line.trim()).filter(Boolean);
+    for (let index = 0; index < lines.length; index += 1) {
+        const current = lines[index];
+        const inline = current.match(new RegExp(`^(?:${labelPattern})(?=\\s|[:=\\-]|$)\\s*(?:(?:[:=\\-]|es)\\s*)?(.+)?$`, 'i'));
+        if (!inline)
+            continue;
+        const inlineValue = tidyValue(inline[1]);
+        if (inlineValue)
+            return inlineValue;
+        const next = lines[index + 1];
+        if (next && !new RegExp(`^(?:${allKeyPattern})\\s*(?:[:=\\-]|es)?`, 'i').test(next))
+            return tidyValue(next);
+    }
+    return undefined;
 }
 function firstEmail(text) {
     return text.match(emailRegex)?.[0];
@@ -70,12 +86,25 @@ function splitBlocks(text) {
 }
 function parseLoose(block) {
     const email = firstEmail(block);
-    if (!email)
+    if (email) {
+        const tail = block.slice(block.indexOf(email) + email.length);
+        const password = field(tail, ['contrasena', 'clave', 'password', 'pass', 'pwd'])
+            || tidyValue(tail.trim().split(/\s+/)[0]);
+        return { delivered_email: email, delivered_password: password };
+    }
+    const credentialLine = block
+        .split(/\n/)
+        .map((line) => line.trim())
+        .find((line) => {
+        const compact = line.replace(/\s+/g, ' ');
+        return /^[a-z0-9._-]{3,}\s+[^:\s]{3,}/i.test(compact)
+            && !new RegExp(`^(?:${allKeyPattern})\\b`, 'i').test(compact)
+            && !deliveryServiceFromText(compact);
+    });
+    if (!credentialLine)
         return {};
-    const tail = block.slice(block.indexOf(email) + email.length);
-    const password = field(tail, ['contrasena', 'clave', 'password', 'pass', 'pwd'])
-        || tidyValue(tail.trim().split(/\s+/)[0]);
-    return { delivered_email: email, delivered_password: password };
+    const [user, password] = credentialLine.replace(/\s+/g, ' ').split(' ');
+    return { delivered_user: tidyValue(user), delivered_password: tidyValue(password) };
 }
 function serviceNameForBlock(block, previousService) {
     const service = deliveryServiceFromText(block);
@@ -91,9 +120,9 @@ export function parseRawDeliveryMessage(rawText) {
             lastService = serviceName;
         const loose = parseLoose(block);
         const delivered_email = field(block, ['correo', 'email', 'mail']) || loose.delivered_email;
-        const delivered_user = field(block, ['usuario', 'user', 'login']);
+        const delivered_user = field(block, ['usuario', 'user', 'login']) || loose.delivered_user;
         const delivered_password = field(block, ['contrasena', 'clave', 'password', 'pass', 'pwd']) || loose.delivered_password;
-        const profile_name = field(block, ['perfil', 'profile']);
+        const profile_name = field(block, ['perfil', 'profile', 'pantalla']);
         const pin = field(block, ['pin de seguridad', 'pin', 'codigo pin']);
         const iptv_url = field(block, ['url para smarters iptv', 'url iptv', 'url', 'link', 'enlace']) || firstUrl(block);
         const explicitNotes = field(block, ['nota', 'notas', 'observacion', 'observaciones']);

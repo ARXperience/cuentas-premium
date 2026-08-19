@@ -8,7 +8,7 @@ import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
-import { createPrismaClient, getRuntimeDatabaseHost } from './services/database/prismaClient.js';
+import { createPrismaClient, getRuntimeDatabaseInfo } from './services/database/prismaClient.js';
 import { disconnectWhatsAppBridge, enableWhatsAppBridge, getWhatsAppBridgeQr, getWhatsAppBridgeRuntimeStatus, getWhatsAppBridgeStatus, queueWhatsAppNotification, retryFailedWhatsAppOutbox, startWhatsAppBridgeWorker } from './services/whatsappBridge/index.js';
 import { parseAccountMessage, serviceKeyFromText } from './services/inboundDeliveryParser/index.js';
 import { parseDeliveryMessage } from './services/deliveryParser/index.js';
@@ -938,13 +938,14 @@ async function handleWhatsAppOutboxFinalFailure(item) {
 }
 const codeLoginSchema = z.object({ access_code: z.string().regex(/^\d{4}$/, 'El codigo debe tener 4 digitos.') });
 app.get('/api/health', async (_req, res) => {
-    const databaseHost = getRuntimeDatabaseHost();
+    const databaseInfo = getRuntimeDatabaseInfo();
     try {
         await prisma.$queryRaw `SELECT 1`;
         res.json({
             ok: true,
             database: 'connected',
-            databaseMode: databaseHost.includes('-pooler.') ? 'pooled' : 'direct',
+            databaseProvider: databaseInfo.provider,
+            databaseMode: databaseInfo.mode,
             databaseDriver: 'pg-adapter'
         });
     }
@@ -954,9 +955,10 @@ app.get('/api/health', async (_req, res) => {
         res.status(503).json({
             ok: false,
             database: 'unavailable',
-            databaseMode: databaseHost.includes('-pooler.') ? 'pooled' : 'direct',
+            databaseProvider: databaseInfo.provider,
+            databaseMode: databaseInfo.mode,
             databaseDriver: 'pg-adapter',
-            databaseHost,
+            databaseHost: databaseInfo.host,
             errorCode,
             errorReason,
             errorMessage: sanitizeDatabaseErrorMessage(rawMessage)

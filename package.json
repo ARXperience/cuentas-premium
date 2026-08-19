@@ -22,6 +22,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:demo": "tsx prisma/seed-demo.ts",
     "db:production": "npm run db:deploy && npm run db:generate && npm run db:seed && npm run bootstrap:production",
+    "db:supabase:deploy": "tsx scripts/supabase-production.ts",
     "create-admin": "tsx scripts/create-admin.ts",
     "create-provider": "tsx scripts/create-provider.ts",
     "bootstrap:production": "tsx scripts/bootstrap-production.ts",

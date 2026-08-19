@@ -24,6 +24,13 @@ Plataforma full-stack para venta, gestion y entrega de servicios digitales de en
 
 ```env
 DATABASE_URL=""
+DIRECT_DATABASE_URL=""
+SUPABASE_DIRECT_DATABASE_URL=""
+DATABASE_PROVIDER=""
+DATABASE_USE_POOLER="true"
+DATABASE_CONNECTION_LIMIT="5"
+DATABASE_CONNECT_TIMEOUT_SECONDS="10"
+DATABASE_POOL_TIMEOUT_SECONDS="10"
 JWT_SECRET=""
 APP_ENCRYPTION_KEY=""
 APP_ENCRYPTION_KEY_PREVIOUS=""
@@ -54,6 +61,7 @@ Notas:
 - `APP_ENCRYPTION_KEY` debe ser estable porque protege contrasenas entregadas.
 - Si alguna cuenta fue cifrada con una llave anterior, configura `APP_ENCRYPTION_KEY_PREVIOUS` o varias llaves separadas por coma en `APP_ENCRYPTION_LEGACY_KEYS`. El backend intentara descifrar con esas llaves solo para usuarios autorizados.
 - Solo `VITE_API_URL` va al navegador.
+- Para Supabase, `DATABASE_URL` debe ser la URL pooler de runtime y `DIRECT_DATABASE_URL` la URL directa para migraciones.
 - `ADMIN_NOTIFICATION_PHONE` vive solo en backend y recibe los avisos de pedidos pendientes de pago.
 - La sesion Baileys se guarda cifrada en PostgreSQL; no requiere volumen persistente.
 
@@ -145,6 +153,54 @@ El proyecto necesita estas tablas para operar en red:
 - `notifications`
 - `movements`
 - `app_settings`
+
+### Supabase
+
+Supabase reemplaza a Neon como base PostgreSQL administrada. Usa dos cadenas:
+
+- `DATABASE_URL`: URL pooler para que Hostinger ejecute la app sin gastar demasiadas conexiones.
+- `DIRECT_DATABASE_URL`: URL directa para crear tablas y aplicar migraciones desde tu computador.
+
+En Supabase:
+
+1. Crea un proyecto nuevo.
+2. Ve a `Project Settings > Database > Connection string`.
+3. Copia la URL `Transaction pooler` para Hostinger. Normalmente se ve parecida a:
+
+```env
+DATABASE_URL="postgresql://postgres.PROJECT_REF:TU_PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres?sslmode=require"
+```
+
+4. Copia la URL directa para migraciones. Normalmente se ve parecida a:
+
+```env
+DIRECT_DATABASE_URL="postgresql://postgres:TU_PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres?sslmode=require"
+```
+
+5. En tu computador crea `.env` usando `.env.supabase.example` como guia.
+6. Ejecuta:
+
+```bash
+npm run db:supabase:deploy
+```
+
+Ese comando aplica migraciones, genera Prisma, carga productos base si faltan y crea los usuarios iniciales si configuraste `ADMIN_CODE`, `CLIENT_CODE` y `PROVIDER_CODE`.
+
+En Hostinger agrega estas variables como minimo:
+
+```env
+DATABASE_URL="postgresql://postgres.PROJECT_REF:TU_PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres?sslmode=require"
+DATABASE_PROVIDER="supabase"
+DATABASE_USE_POOLER="false"
+DATABASE_CONNECTION_LIMIT="1"
+DATABASE_CONNECT_TIMEOUT_SECONDS="10"
+DATABASE_POOL_TIMEOUT_SECONDS="10"
+JWT_SECRET="clave-larga-y-segura"
+APP_ENCRYPTION_KEY="clave-estable-de-32-caracteres-o-mas"
+CORS_ORIGIN="https://cuentas.centrodigitaldediseno.com"
+```
+
+No pongas `DIRECT_DATABASE_URL` en el frontend ni en variables que empiecen por `VITE_`. Si la app carga bien, `GET /api/health` debe responder `databaseProvider: "supabase"` y `database: "connected"`.
 
 ## Acceso Por Codigo
 

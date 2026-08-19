@@ -14,17 +14,23 @@ function runStartupCommand(command, args) {
 }
 
 function prepareDatabase() {
+  const runtimeDatabaseUrl = process.env.DATABASE_URL;
+  const migrationDatabaseUrl = process.env.DIRECT_DATABASE_URL || process.env.SUPABASE_DIRECT_DATABASE_URL || process.env.DATABASE_URL;
   const shouldSkip =
     process.env.SKIP_STARTUP_DB_SETUP === 'true' ||
     process.env.RUN_STARTUP_DB_SETUP !== 'true' ||
     process.env.NODE_ENV !== 'production' ||
-    !process.env.DATABASE_URL;
+    !migrationDatabaseUrl;
 
   if (shouldSkip) return;
 
+  process.env.DATABASE_URL = migrationDatabaseUrl;
   runStartupCommand('npx', ['prisma', 'migrate', 'deploy']);
   runStartupCommand('npx', ['tsx', 'prisma/seed.ts']);
   runStartupCommand('npx', ['tsx', 'scripts/bootstrap-production.ts']);
+  if (runtimeDatabaseUrl) {
+    process.env.DATABASE_URL = runtimeDatabaseUrl;
+  }
 }
 
 try {

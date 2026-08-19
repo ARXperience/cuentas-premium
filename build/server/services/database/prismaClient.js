@@ -1,5 +1,21 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+function detectDatabaseProvider(hostname) {
+    if (!hostname)
+        return 'unknown';
+    if (hostname.endsWith('.neon.tech'))
+        return 'neon';
+    if (hostname.includes('supabase.co') || hostname.includes('supabase.com'))
+        return 'supabase';
+    return 'postgresql';
+}
+function detectDatabaseMode(hostname) {
+    if (!hostname)
+        return 'unknown';
+    if (hostname.includes('-pooler.') || hostname.includes('.pooler.supabase.'))
+        return 'pooled';
+    return 'direct';
+}
 function normalizeDatabaseUrl() {
     const raw = process.env.DATABASE_URL;
     const usePooler = process.env.DATABASE_USE_POOLER?.trim().toLowerCase() !== 'false';
@@ -7,21 +23,23 @@ function normalizeDatabaseUrl() {
         return '';
     try {
         const databaseUrl = new URL(raw);
+        const provider = detectDatabaseProvider(databaseUrl.hostname);
         const [endpoint, ...domainParts] = databaseUrl.hostname.split('.');
-        if (usePooler && databaseUrl.hostname.endsWith('.neon.tech') && endpoint && !endpoint.endsWith('-pooler')) {
+        if (provider === 'neon' && usePooler && endpoint && !endpoint.endsWith('-pooler')) {
             databaseUrl.hostname = [`${endpoint}-pooler`, ...domainParts].join('.');
         }
-        if (databaseUrl.hostname.endsWith('.neon.tech') && !databaseUrl.searchParams.has('sslmode')) {
+        if ((provider === 'neon' || provider === 'supabase') && !databaseUrl.searchParams.has('sslmode')) {
             databaseUrl.searchParams.set('sslmode', 'require');
         }
         if (!databaseUrl.searchParams.has('connect_timeout')) {
-            databaseUrl.searchParams.set('connect_timeout', process.env.DATABASE_CONNECT_TIMEOUT_SECONDS || '8');
+            databaseUrl.searchParams.set('connect_timeout', process.env.DATABASE_CONNECT_TIMEOUT_SECONDS || '10');
         }
         if (!databaseUrl.searchParams.has('pool_timeout')) {
-            databaseUrl.searchParams.set('pool_timeout', process.env.DATABASE_POOL_TIMEOUT_SECONDS || '8');
+            databaseUrl.searchParams.set('pool_timeout', process.env.DATABASE_POOL_TIMEOUT_SECONDS || '10');
         }
         if (!databaseUrl.searchParams.has('connection_limit')) {
-            databaseUrl.searchParams.set('connection_limit', process.env.DATABASE_CONNECTION_LIMIT || '5');
+            const defaultConnectionLimit = provider === 'supabase' && process.env.NODE_ENV === 'production' ? '1' : '5';
+            databaseUrl.searchParams.set('connection_limit', process.env.DATABASE_CONNECTION_LIMIT || defaultConnectionLimit);
         }
         process.env.DATABASE_URL = databaseUrl.toString();
         return process.env.DATABASE_URL;
@@ -36,7 +54,16 @@ function buildPgAdapterConfig(connectionString) {
     const sslMode = databaseUrl.searchParams.get('sslmode');
     const connectionLimit = Number(databaseUrl.searchParams.get('connection_limit') || process.env.DATABASE_CONNECTION_LIMIT || 5);
     const connectTimeout = Number(databaseUrl.searchParams.get('connect_timeout') || process.env.DATABASE_CONNECT_TIMEOUT_SECONDS || 8);
-    for (const key of ['schema', 'connection_limit', 'pool_timeout', 'channel_binding', 'connect_timeout', 'sslmode']) {
+    for (const key of [
+        'schema',
+        'connection_limit',
+        'pool_timeout',
+        'channel_binding',
+        'connect_timeout',
+        'sslmode',
+        'pgbouncer',
+        'statement_cache_size'
+    ]) {
         databaseUrl.searchParams.delete(key);
     }
     return {
@@ -52,6 +79,9 @@ function buildPgAdapterConfig(connectionString) {
 }
 export function createPrismaClient() {
     const connectionString = normalizeDatabaseUrl();
+    if (!connectionString) {
+        throw new Error('DATABASE_URL es requerido para conectar la base de datos.');
+    }
     const { config, schema } = buildPgAdapterConfig(connectionString);
     const adapter = new PrismaPg(config, {
         schema,
@@ -71,4 +101,12 @@ export function getRuntimeDatabaseHost() {
     catch {
         return '';
     }
+}
+export function getRuntimeDatabaseInfo() {
+    const host = getRuntimeDatabaseHost();
+    return {
+        host,
+        provider: detectDatabaseProvider(host),
+        mode: detectDatabaseMode(host)
+    };
 }

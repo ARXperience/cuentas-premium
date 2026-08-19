@@ -3,10 +3,9 @@
 Esta plataforma no es una pagina estatica simple. Necesita:
 
 - Backend Node.js/Express.
-- PostgreSQL.
+- PostgreSQL administrado. Recomendado ahora: Supabase.
 - Prisma migrations.
 - Proceso persistente para WhatsApp Bridge.
-- Carpeta persistente para `.whatsapp-session`.
 
 Por eso el despliegue recomendado es **Hostinger VPS** o **Hostinger Node.js Web App** si tu plan lo permite. Subir solo `dist/` a `public_html` no sirve para operar el sistema completo.
 
@@ -14,7 +13,7 @@ Por eso el despliegue recomendado es **Hostinger VPS** o **Hostinger Node.js Web
 
 ### 1. Preparar servidor
 
-En el VPS instala Node.js LTS, npm, PM2, Nginx y PostgreSQL o conecta una base PostgreSQL administrada.
+En el VPS instala Node.js LTS, npm, PM2 y Nginx. La base recomendada es Supabase PostgreSQL administrado.
 
 ```bash
 node -v
@@ -48,6 +47,7 @@ cp deploy/hostinger/.env.production.example .env
 Edita `.env` y completa:
 
 - `DATABASE_URL`
+- `DIRECT_DATABASE_URL` si vas a migrar Supabase desde ese servidor
 - `JWT_SECRET`
 - `APP_ENCRYPTION_KEY`
 - `CORS_ORIGIN`
@@ -70,6 +70,14 @@ npm run build
 ```
 
 ### 5. Migrar base de datos
+
+Si usas Supabase, primero configura `DIRECT_DATABASE_URL` con la conexion directa de Supabase y ejecuta:
+
+```bash
+npm run db:supabase:deploy
+```
+
+Si usas otra base PostgreSQL administrada:
 
 ```bash
 npm run db:deploy
@@ -187,7 +195,7 @@ La carpeta `.whatsapp-session` debe estar en disco persistente. No la borres si 
 Si tu plan muestra la opcion **Node.js Web App**:
 
 1. Sube el repositorio o ZIP.
-2. Configura variables de entorno en hPanel.
+2. Configura variables de entorno en hPanel. Para Supabase usa `DATABASE_URL` con la URL pooler, no la URL directa.
 3. Build command:
 
 ```bash
@@ -204,6 +212,43 @@ npm run start
 6. Revisa que el plan permita proceso persistente y escritura en `.whatsapp-session`.
 
 Si el proceso se duerme o no conserva sesion, usa VPS.
+
+### Variables Hostinger Con Supabase
+
+En Hostinger pega estas variables:
+
+```env
+NODE_ENV="production"
+DATABASE_URL="postgresql://postgres.PROJECT_REF:TU_PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres?sslmode=require"
+DATABASE_PROVIDER="supabase"
+DATABASE_USE_POOLER="false"
+DATABASE_CONNECTION_LIMIT="1"
+DATABASE_CONNECT_TIMEOUT_SECONDS="10"
+DATABASE_POOL_TIMEOUT_SECONDS="10"
+JWT_SECRET="clave-larga-y-segura"
+APP_ENCRYPTION_KEY="clave-estable-de-32-caracteres-o-mas"
+CORS_ORIGIN="https://cuentas.centrodigitaldediseno.com"
+FRONTEND_ORIGIN="https://cuentas.centrodigitaldediseno.com"
+VITE_API_URL=""
+```
+
+No subas `DIRECT_DATABASE_URL` al frontend. Usala solo para aplicar migraciones desde tu computador o desde una consola segura.
+
+Antes de redeplegar en Hostinger prepara la base desde tu computador:
+
+```bash
+copy .env.supabase.example .env
+npm install
+npm run db:supabase:deploy
+```
+
+Luego sube o redepliega el repo. Al abrir:
+
+```text
+https://cuentas.centrodigitaldediseno.com/api/health
+```
+
+debe aparecer `databaseProvider: "supabase"` y `database: "connected"`.
 
 ## Opcion solo frontend
 

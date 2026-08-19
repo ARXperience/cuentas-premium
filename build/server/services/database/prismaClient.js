@@ -12,9 +12,21 @@ function detectDatabaseProvider(hostname) {
 function detectDatabaseMode(hostname) {
     if (!hostname)
         return 'unknown';
-    if (hostname.includes('-pooler.') || hostname.includes('.pooler.supabase.'))
+    if (hostname.includes('-pooler.') || hostname.includes('.pooler.supabase.') || hostname.endsWith('.pooler.supabase.com')) {
         return 'pooled';
+    }
     return 'direct';
+}
+function normalizeSupabasePoolerHost(hostname) {
+    if (!hostname.endsWith('.pooler.supabase.com'))
+        return hostname;
+    if (hostname.startsWith('aws-'))
+        return hostname;
+    const region = hostname.replace('.pooler.supabase.com', '');
+    if (/^[a-z]{2}-[a-z]+-\d$/.test(region)) {
+        return `aws-0-${region}.pooler.supabase.com`;
+    }
+    return hostname;
 }
 function normalizeDatabaseUrl() {
     const raw = process.env.DATABASE_URL;
@@ -24,6 +36,9 @@ function normalizeDatabaseUrl() {
     try {
         const databaseUrl = new URL(raw);
         const provider = detectDatabaseProvider(databaseUrl.hostname);
+        if (provider === 'supabase') {
+            databaseUrl.hostname = normalizeSupabasePoolerHost(databaseUrl.hostname);
+        }
         const [endpoint, ...domainParts] = databaseUrl.hostname.split('.');
         if (provider === 'neon' && usePooler && endpoint && !endpoint.endsWith('-pooler')) {
             databaseUrl.hostname = [`${endpoint}-pooler`, ...domainParts].join('.');

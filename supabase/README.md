@@ -47,6 +47,14 @@ DATABASE_URL="postgresql://postgres.deqdxwvnjrwwzfhkmeng:DB_PASSWORD@aws-0-REGIO
 DIRECT_DATABASE_URL="postgresql://postgres:DB_PASSWORD@db.deqdxwvnjrwwzfhkmeng.supabase.co:5432/postgres?sslmode=require"
 ```
 
+Si Supabase muestra la region `us-west-2`, el host correcto debe quedar asi:
+
+```env
+DATABASE_URL="postgresql://postgres.deqdxwvnjrwwzfhkmeng:DB_PASSWORD@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require"
+```
+
+No uses `us-west-2.pooler.supabase.com` sin el prefijo `aws-0-`.
+
 ## 3. Preparar La Base
 
 En la carpeta del proyecto:

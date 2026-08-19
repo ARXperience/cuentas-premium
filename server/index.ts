@@ -173,7 +173,7 @@ function databaseErrorReason(error: unknown) {
     lower.includes('panic') || lower.includes('query engine') ? 'engine_panic' :
     lower.includes('compute time quota') || (lower.includes('exceeded') && lower.includes('quota')) ? 'quota_exceeded' :
     rawMessage.includes("Can't reach database server") ? 'unreachable' :
-    rawMessage.includes('Authentication failed') ? 'authentication_failed' :
+    rawMessage.includes('Authentication failed') || lower.includes('password authentication failed') || lower.includes('too many authentication failures') ? 'authentication_failed' :
     rawMessage.includes('invalid') && rawMessage.includes('DATABASE_URL') ? 'invalid_url' :
     lower.includes('timeout') || lower.includes('tiempo de espera') ? 'timeout' :
     lower.includes('tls') || lower.includes('ssl') ? 'tls_error' :
@@ -1096,8 +1096,10 @@ app.post('/api/auth/login', async (req, res, next) => {
     const { code, reason } = databaseErrorReason(error);
     if (code.startsWith('P10') || reason !== 'unknown') {
       const message = reason === 'quota_exceeded'
-        ? 'La base de datos alcanzo su limite de uso en Neon. Reactiva o aumenta la cuota de la base de datos e intenta nuevamente.'
-        : 'La base de datos no esta disponible temporalmente. Intenta de nuevo en unos minutos.';
+        ? 'La base de datos alcanzo su limite de uso. Reactiva o aumenta la cuota de la base de datos e intenta nuevamente.'
+        : reason === 'authentication_failed'
+          ? 'La base de datos rechazo la conexion. Revisa usuario, contrasena y cadena DATABASE_URL.'
+          : 'La base de datos no esta disponible temporalmente. Intenta de nuevo en unos minutos.';
       return res.status(503).json({
         message,
         database: 'unavailable',
@@ -2595,8 +2597,10 @@ app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
   const { code, reason } = databaseErrorReason(error);
   if (reason !== 'unknown' || code.startsWith('P')) {
     const message = reason === 'quota_exceeded'
-      ? 'La base de datos alcanzo su limite de uso en Neon. Reactiva o aumenta la cuota de la base de datos e intenta nuevamente.'
-      : 'La base de datos no esta disponible temporalmente. Intenta de nuevo en unos minutos.';
+      ? 'La base de datos alcanzo su limite de uso. Reactiva o aumenta la cuota de la base de datos e intenta nuevamente.'
+      : reason === 'authentication_failed'
+        ? 'La base de datos rechazo la conexion. Revisa usuario, contrasena y cadena DATABASE_URL.'
+        : 'La base de datos no esta disponible temporalmente. Intenta de nuevo en unos minutos.';
     return res.status(503).json({ message, database: 'unavailable', reason });
   }
   console.error(error);

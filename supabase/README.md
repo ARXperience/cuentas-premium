@@ -2,6 +2,18 @@
 
 Esta carpeta documenta la preparacion de Supabase para Centro Digital.
 
+Proyecto creado:
+
+```text
+https://deqdxwvnjrwwzfhkmeng.supabase.co
+```
+
+Project ref:
+
+```text
+deqdxwvnjrwwzfhkmeng
+```
+
 ## 1. Crear Proyecto
 
 En Supabase crea un proyecto PostgreSQL nuevo. Guarda la contrasena de la base de datos; la vas a necesitar en las cadenas de conexion.
@@ -26,6 +38,13 @@ Ejemplo local para migrar:
 
 ```env
 DIRECT_DATABASE_URL="postgresql://postgres:DB_PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres?sslmode=require"
+```
+
+Para este proyecto, cambia solo `DB_PASSWORD` y `REGION`:
+
+```env
+DATABASE_URL="postgresql://postgres.deqdxwvnjrwwzfhkmeng:DB_PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres?sslmode=require"
+DIRECT_DATABASE_URL="postgresql://postgres:DB_PASSWORD@db.deqdxwvnjrwwzfhkmeng.supabase.co:5432/postgres?sslmode=require"
 ```
 
 ## 3. Preparar La Base

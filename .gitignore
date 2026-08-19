@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.supabase.example
 !deploy/hostinger/.env.production.example
 
 # Dependencies and local tooling

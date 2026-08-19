@@ -65,10 +65,13 @@ function normalizeDatabaseUrl() {
 }
 function buildPgAdapterConfig(connectionString) {
     const databaseUrl = new URL(connectionString);
+    const provider = detectDatabaseProvider(databaseUrl.hostname);
     const schema = databaseUrl.searchParams.get('schema') || 'public';
     const sslMode = databaseUrl.searchParams.get('sslmode');
     const connectionLimit = Number(databaseUrl.searchParams.get('connection_limit') || process.env.DATABASE_CONNECTION_LIMIT || 5);
     const connectTimeout = Number(databaseUrl.searchParams.get('connect_timeout') || process.env.DATABASE_CONNECT_TIMEOUT_SECONDS || 8);
+    const rejectUnauthorizedSetting = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED?.trim().toLowerCase();
+    const rejectUnauthorized = rejectUnauthorizedSetting === 'true' ? true : rejectUnauthorizedSetting === 'false' ? false : provider !== 'supabase';
     for (const key of [
         'schema',
         'connection_limit',
@@ -76,6 +79,9 @@ function buildPgAdapterConfig(connectionString) {
         'channel_binding',
         'connect_timeout',
         'sslmode',
+        'sslcert',
+        'sslidentity',
+        'sslpassword',
         'pgbouncer',
         'statement_cache_size'
     ]) {
@@ -88,7 +94,7 @@ function buildPgAdapterConfig(connectionString) {
             max: connectionLimit,
             connectionTimeoutMillis: connectTimeout * 1000,
             idleTimeoutMillis: 30_000,
-            ssl: sslMode === 'disable' ? false : { rejectUnauthorized: true }
+            ssl: sslMode === 'disable' ? false : { rejectUnauthorized }
         }
     };
 }

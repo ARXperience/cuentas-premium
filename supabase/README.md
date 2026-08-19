@@ -32,6 +32,7 @@ DATABASE_URL="postgresql://postgres.PROJECT_REF:DB_PASSWORD@aws-0-REGION.pooler.
 DATABASE_PROVIDER="supabase"
 DATABASE_USE_POOLER="false"
 DATABASE_CONNECTION_LIMIT="1"
+DATABASE_SSL_REJECT_UNAUTHORIZED="false"
 ```
 
 Ejemplo local para migrar:
@@ -54,6 +55,7 @@ DATABASE_URL="postgresql://postgres.deqdxwvnjrwwzfhkmeng:DB_PASSWORD@aws-0-us-we
 ```
 
 No uses `us-west-2.pooler.supabase.com` sin el prefijo `aws-0-`.
+En Hostinger usa `DATABASE_SSL_REJECT_UNAUTHORIZED="false"` si `/api/health` muestra `self-signed certificate in certificate chain`.
 
 ## 3. Preparar La Base
 

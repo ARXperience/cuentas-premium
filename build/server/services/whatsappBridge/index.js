@@ -1,6 +1,9 @@
-import { enqueueWhatsAppMessage, getWhatsAppOutboxCounts, processWhatsAppOutbox, retryFailedWhatsAppMessages } from './queue.js';
+import { enqueueWhatsAppMessage, getWhatsAppOutboxCounts, processWhatsAppOutbox, retryFailedWhatsAppMessages, shouldPollWhatsAppOutbox } from './queue.js';
 import { disableWhatsAppClient, disconnectWhatsAppClient, enableWhatsAppClient, getWhatsAppRuntimeStatus, initializeWhatsAppClient, setWhatsAppInboundHandler } from './baileysClient.js';
 let workerStarted = false;
+function workerIntervalMs() {
+    return Number(process.env.WHATSAPP_WORKER_INTERVAL_SECONDS || (process.env.NODE_ENV === 'production' ? 30 : 5)) * 1000;
+}
 export async function queueWhatsAppNotification(prisma, input) {
     return enqueueWhatsAppMessage(prisma, input);
 }
@@ -16,6 +19,9 @@ export async function getWhatsAppBridgeStatus(prisma) {
         lastError: runtime.lastError,
         ...counts
     };
+}
+export function getWhatsAppBridgeRuntimeStatus() {
+    return getWhatsAppRuntimeStatus();
 }
 export function getWhatsAppBridgeQr() {
     return getWhatsAppRuntimeStatus().qr;
@@ -37,8 +43,10 @@ export async function startWhatsAppBridgeWorker(prisma, addMovement, inboundHand
         workerStarted = true;
         windowlessInterval(async () => {
             await initializeWhatsAppClient(prisma);
+            if (!shouldPollWhatsAppOutbox())
+                return;
             await processWhatsAppOutbox(prisma, addMovement, onFinalFailure);
-        }, 5000);
+        }, workerIntervalMs());
     }
     await initializeWhatsAppClient(prisma);
 }

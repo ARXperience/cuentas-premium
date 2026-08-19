@@ -13,6 +13,7 @@ import {
   disconnectWhatsAppBridge,
   enableWhatsAppBridge,
   getWhatsAppBridgeQr,
+  getWhatsAppBridgeRuntimeStatus,
   getWhatsAppBridgeStatus,
   queueWhatsAppNotification,
   retryFailedWhatsAppOutbox,
@@ -170,6 +171,7 @@ function databaseErrorReason(error: unknown) {
   const lower = rawMessage.toLowerCase();
   const reason =
     lower.includes('panic') || lower.includes('query engine') ? 'engine_panic' :
+    lower.includes('compute time quota') || (lower.includes('exceeded') && lower.includes('quota')) ? 'quota_exceeded' :
     rawMessage.includes("Can't reach database server") ? 'unreachable' :
     rawMessage.includes('Authentication failed') ? 'authentication_failed' :
     rawMessage.includes('invalid') && rawMessage.includes('DATABASE_URL') ? 'invalid_url' :
@@ -913,7 +915,7 @@ function whatsappDisconnectAlertGraceMs() {
   return Number(process.env.WHATSAPP_DISCONNECT_ALERT_GRACE_SECONDS || 45) * 1000;
 }
 
-async function notifyAdminWhatsAppBridgeDisconnected(status: Awaited<ReturnType<typeof getWhatsAppBridgeStatus>>) {
+async function notifyAdminWhatsAppBridgeDisconnected(status: ReturnType<typeof getWhatsAppBridgeRuntimeStatus>) {
   const adminPhone = await getAdminNotificationPhone() || process.env.WHATSAPP_ADMIN_PHONE || '3046282664';
   const adminEmail = await getAdminNotificationEmail();
   const message = [
@@ -953,14 +955,16 @@ async function notifyAdminWhatsAppBridgeDisconnected(status: Awaited<ReturnType<
 
 function startWhatsAppBridgeAlertMonitor() {
   let running = false;
+  const intervalMs = Number(process.env.WHATSAPP_DISCONNECT_MONITOR_SECONDS || (process.env.NODE_ENV === 'production' ? 300 : 15)) * 1000;
   setInterval(() => {
     if (running) return;
     running = true;
     void (async () => {
+      const status = getWhatsAppBridgeRuntimeStatus();
+      if (!status.enabled) return;
       const adminEnabled = await getSettingValue('whatsapp_bridge_admin_enabled');
-      const status = await getWhatsAppBridgeStatus(prisma);
 
-      if (adminEnabled === 'false' || !status.enabled) {
+      if (adminEnabled === 'false') {
         await Promise.all([
           upsertSetting('whatsapp_bridge_last_connection_state', status.connection),
           upsertSetting('whatsapp_bridge_non_connected_since', ''),
@@ -1008,7 +1012,7 @@ function startWhatsAppBridgeAlertMonitor() {
       .finally(() => {
         running = false;
       });
-  }, 15_000);
+  }, intervalMs);
 }
 
 async function handleWhatsAppOutboxFinalFailure(
@@ -1089,8 +1093,11 @@ app.post('/api/auth/login', async (req, res, next) => {
     console.error('[auth:login]', error instanceof Error ? error.message : error);
     const { code, reason } = databaseErrorReason(error);
     if (code.startsWith('P10') || reason !== 'unknown') {
+      const message = reason === 'quota_exceeded'
+        ? 'La base de datos alcanzo su limite de uso en Neon. Reactiva o aumenta la cuota de la base de datos e intenta nuevamente.'
+        : 'La base de datos no esta disponible temporalmente. Intenta de nuevo en unos minutos.';
       return res.status(503).json({
-        message: 'La base de datos no esta disponible temporalmente. Intenta de nuevo en unos minutos.',
+        message,
         database: 'unavailable',
         reason
       });
@@ -2582,6 +2589,13 @@ if (process.env.NODE_ENV === 'production') {
 app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
   if (error instanceof z.ZodError) {
     return res.status(400).json({ message: 'Datos invalidos.', issues: error.issues });
+  }
+  const { code, reason } = databaseErrorReason(error);
+  if (reason !== 'unknown' || code.startsWith('P')) {
+    const message = reason === 'quota_exceeded'
+      ? 'La base de datos alcanzo su limite de uso en Neon. Reactiva o aumenta la cuota de la base de datos e intenta nuevamente.'
+      : 'La base de datos no esta disponible temporalmente. Intenta de nuevo en unos minutos.';
+    return res.status(503).json({ message, database: 'unavailable', reason });
   }
   console.error(error);
   return res.status(500).json({ message: 'Error interno del servidor.' });

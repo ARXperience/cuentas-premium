@@ -2,6 +2,9 @@ import type { PrismaClient } from '@prisma/client';
 import { getWhatsAppRuntimeStatus, sendWhatsAppMessage } from './baileysClient.js';
 import type { AddMovement, QueueWhatsAppMessageInput, WhatsAppOutboxFailureHandler } from './types.js';
 
+let pendingOutboxHint = false;
+let nextOutboxSweepAt = 0;
+
 function maxAttempts() {
   return Number(process.env.WHATSAPP_MAX_ATTEMPTS || 3);
 }
@@ -14,11 +17,24 @@ function emailFallbackDelayMs() {
   return Number(process.env.WHATSAPP_EMAIL_FALLBACK_SECONDS || 60) * 1000;
 }
 
+function idleSweepMs() {
+  return Number(process.env.WHATSAPP_IDLE_SWEEP_SECONDS || (process.env.NODE_ENV === 'production' ? 300 : 30)) * 1000;
+}
+
+export function shouldPollWhatsAppOutbox() {
+  if (pendingOutboxHint) return true;
+  const now = Date.now();
+  if (now < nextOutboxSweepAt) return false;
+  nextOutboxSweepAt = now + idleSweepMs();
+  return true;
+}
+
 function sanitizeError(error: unknown) {
   return error instanceof Error ? error.message.replace(/\+?\d{7,15}/g, '[redacted]').slice(0, 220) : 'Error desconocido';
 }
 
 export async function enqueueWhatsAppMessage(prisma: PrismaClient, input: QueueWhatsAppMessageInput) {
+  pendingOutboxHint = true;
   if (input.payoutId) {
     const existing = await prisma.whatsAppOutbox.findUnique({ where: { payout_id: input.payoutId } });
     if (existing?.status === 'sent' || existing?.status === 'pending') return existing;
@@ -59,6 +75,7 @@ export async function retryFailedWhatsAppMessages(prisma: PrismaClient) {
     where: { status: 'failed' },
     data: { status: 'pending', attempts: 0, last_error: null }
   });
+  pendingOutboxHint = true;
 }
 
 export async function getWhatsAppOutboxCounts(prisma: PrismaClient) {
@@ -79,6 +96,10 @@ export async function processWhatsAppOutbox(prisma: PrismaClient, addMovement: A
     orderBy: { created_at: 'asc' },
     take: 5
   });
+  if (!items.length) {
+    pendingOutboxHint = false;
+    return;
+  }
 
   for (const item of items) {
     const isOrderNotification = Boolean(item.order_id && item.payout_id);

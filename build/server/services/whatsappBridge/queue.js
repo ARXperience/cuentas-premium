@@ -1,4 +1,6 @@
 import { getWhatsAppRuntimeStatus, sendWhatsAppMessage } from './baileysClient.js';
+let pendingOutboxHint = false;
+let nextOutboxSweepAt = 0;
 function maxAttempts() {
     return Number(process.env.WHATSAPP_MAX_ATTEMPTS || 3);
 }
@@ -8,10 +10,23 @@ function retryDelayMs() {
 function emailFallbackDelayMs() {
     return Number(process.env.WHATSAPP_EMAIL_FALLBACK_SECONDS || 60) * 1000;
 }
+function idleSweepMs() {
+    return Number(process.env.WHATSAPP_IDLE_SWEEP_SECONDS || (process.env.NODE_ENV === 'production' ? 300 : 30)) * 1000;
+}
+export function shouldPollWhatsAppOutbox() {
+    if (pendingOutboxHint)
+        return true;
+    const now = Date.now();
+    if (now < nextOutboxSweepAt)
+        return false;
+    nextOutboxSweepAt = now + idleSweepMs();
+    return true;
+}
 function sanitizeError(error) {
     return error instanceof Error ? error.message.replace(/\+?\d{7,15}/g, '[redacted]').slice(0, 220) : 'Error desconocido';
 }
 export async function enqueueWhatsAppMessage(prisma, input) {
+    pendingOutboxHint = true;
     if (input.payoutId) {
         const existing = await prisma.whatsAppOutbox.findUnique({ where: { payout_id: input.payoutId } });
         if (existing?.status === 'sent' || existing?.status === 'pending')
@@ -51,6 +66,7 @@ export async function retryFailedWhatsAppMessages(prisma) {
         where: { status: 'failed' },
         data: { status: 'pending', attempts: 0, last_error: null }
     });
+    pendingOutboxHint = true;
 }
 export async function getWhatsAppOutboxCounts(prisma) {
     const [pending, sent, failed, emailFallback] = await Promise.all([
@@ -69,6 +85,10 @@ export async function processWhatsAppOutbox(prisma, addMovement, onFinalFailure)
         orderBy: { created_at: 'asc' },
         take: 5
     });
+    if (!items.length) {
+        pendingOutboxHint = false;
+        return;
+    }
     for (const item of items) {
         const isOrderNotification = Boolean(item.order_id && item.payout_id);
         const fallbackExpired = now - item.created_at.getTime() >= emailFallbackDelayMs();

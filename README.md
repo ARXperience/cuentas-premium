@@ -200,6 +200,7 @@ Funcionamiento:
 - Al crear un pedido, el backend crea un `WhatsAppOutbox` para avisar al admin.
 - El worker envia el mensaje automaticamente si la sesion esta conectada.
 - El bridge intenta reconectarse mientras el proceso Node.js siga vivo. La vinculacion suele mantenerse 24/7, pero WhatsApp puede cerrar la sesion, el servidor puede reiniciarse o la red puede fallar.
+- En produccion el worker evita consultar la base cada pocos segundos cuando no hay mensajes pendientes. `WHATSAPP_WORKER_INTERVAL_SECONDS` controla el intervalo activo y `WHATSAPP_IDLE_SWEEP_SECONDS` el barrido cuando la cola esta vacia; esto ayuda a no agotar la cuota de Neon.
 - Si el bridge deja de estar conectado durante mas de `WHATSAPP_DISCONNECT_ALERT_GRACE_SECONDS`, el sistema envia una alerta al correo del admin y deja un WhatsApp en cola para el numero de avisos del admin.
 - Si WhatsApp falla, el pedido no falla; queda en el panel admin.
 
@@ -351,8 +352,11 @@ SMTP_FROM=""
 WHATSAPP_BRIDGE_ENABLED="true"
 WHATSAPP_BRIDGE_AUTOSTART="true"
 WHATSAPP_BRIDGE_MODE="baileys"
+WHATSAPP_WORKER_INTERVAL_SECONDS="30"
+WHATSAPP_IDLE_SWEEP_SECONDS="300"
 WHATSAPP_RECONNECT_DELAY_SECONDS="10"
 WHATSAPP_DISCONNECT_ALERT_GRACE_SECONDS="45"
+WHATSAPP_DISCONNECT_MONITOR_SECONDS="300"
 WHATSAPP_BAILEYS_LOG_LEVEL="silent"
 WHATSAPP_INBOUND_ENABLED="false"
 WHATSAPP_ALLOWED_INBOUND_NUMBERS=""

@@ -115,6 +115,24 @@ Opcion manual desde Supabase:
 
 Nota: `production-schema.sql` crea la estructura. Los productos, codigos de acceso y configuraciones iniciales los cargan `prisma/seed.ts` y `scripts/bootstrap-production.ts`.
 
+## 3.2. Copiar Datos Desde Neon A Supabase
+
+Si Neon todavia permite lectura o tienes una URL activa de Neon, puedes copiar los datos existentes despues de crear las tablas en Supabase:
+
+```bash
+set SOURCE_DATABASE_URL=postgresql://USUARIO_NEON:CLAVE_NEON@HOST_NEON/neondb?sslmode=require
+set TARGET_DATABASE_URL=postgresql://postgres.PROJECT_REF:CLAVE_SUPABASE@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require
+npm run db:copy-data
+```
+
+El script copia las tablas principales en orden de dependencias y no duplica registros existentes porque usa `ON CONFLICT DO NOTHING`.
+
+Si Neon ya bloqueo la base por cuota, esta copia no podra leer los datos antiguos. En ese caso solo puedes:
+
+- reactivar/aumentar cuota de Neon temporalmente y ejecutar `npm run db:copy-data`;
+- exportar un dump desde Neon y restaurarlo en Supabase;
+- o iniciar Supabase limpio con productos y usuarios base usando `npm run db:seed` y `npm run bootstrap:production`.
+
 ## 4. Variables En Hostinger
 
 En Hostinger usa la URL pooler de Supabase como `DATABASE_URL`. No uses la URL directa para runtime.

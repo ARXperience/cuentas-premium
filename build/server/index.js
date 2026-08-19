@@ -135,12 +135,13 @@ function databaseErrorReason(error) {
     const reason = lower.includes('panic') || lower.includes('query engine') ? 'engine_panic' :
         lower.includes('compute time quota') || (lower.includes('exceeded') && lower.includes('quota')) ? 'quota_exceeded' :
             rawMessage.includes("Can't reach database server") ? 'unreachable' :
-                rawMessage.includes('Authentication failed') || lower.includes('password authentication failed') || lower.includes('too many authentication failures') ? 'authentication_failed' :
-                    rawMessage.includes('invalid') && rawMessage.includes('DATABASE_URL') ? 'invalid_url' :
-                        lower.includes('timeout') || lower.includes('tiempo de espera') ? 'timeout' :
-                            lower.includes('tls') || lower.includes('ssl') ? 'tls_error' :
-                                code.startsWith('P10') ? 'connection_error' :
-                                    'unknown';
+                lower.includes('tenant/user') && lower.includes('not found') ? 'authentication_failed' :
+                    rawMessage.includes('Authentication failed') || lower.includes('password authentication failed') || lower.includes('too many authentication failures') ? 'authentication_failed' :
+                        rawMessage.includes('invalid') && rawMessage.includes('DATABASE_URL') ? 'invalid_url' :
+                            lower.includes('timeout') || lower.includes('tiempo de espera') ? 'timeout' :
+                                lower.includes('tls') || lower.includes('ssl') ? 'tls_error' :
+                                    code.startsWith('P10') ? 'connection_error' :
+                                        'unknown';
     return { code, reason, rawMessage };
 }
 function sanitizeDatabaseErrorMessage(message) {

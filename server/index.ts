@@ -173,6 +173,7 @@ function databaseErrorReason(error: unknown) {
     lower.includes('panic') || lower.includes('query engine') ? 'engine_panic' :
     lower.includes('compute time quota') || (lower.includes('exceeded') && lower.includes('quota')) ? 'quota_exceeded' :
     rawMessage.includes("Can't reach database server") ? 'unreachable' :
+    lower.includes('tenant/user') && lower.includes('not found') ? 'authentication_failed' :
     rawMessage.includes('Authentication failed') || lower.includes('password authentication failed') || lower.includes('too many authentication failures') ? 'authentication_failed' :
     rawMessage.includes('invalid') && rawMessage.includes('DATABASE_URL') ? 'invalid_url' :
     lower.includes('timeout') || lower.includes('tiempo de espera') ? 'timeout' :

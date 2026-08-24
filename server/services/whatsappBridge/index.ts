@@ -24,6 +24,7 @@ export async function getWhatsAppBridgeStatus(prisma: PrismaClient) {
     mode: runtime.mode,
     connection: runtime.connection,
     connectedNumber: runtime.connectedNumber,
+    lastConnectedAt: runtime.lastConnectedAt,
     qrPending: runtime.qrPending,
     lastError: runtime.lastError,
     ...counts

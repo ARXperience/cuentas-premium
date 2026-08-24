@@ -2109,6 +2109,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
                 <Metric label="Bridge" value={whatsappStatus?.enabled ? "Activo" : "Inactivo"} />
                 <Metric label="Sesion" value={whatsappStatus?.connection || "-"} />
                 <Metric label="Numero vinculado" value={whatsappStatus?.connectedNumber || "-"} />
+                <Metric label="Ultima conexion" value={formatDateTime(whatsappStatus?.lastConnectedAt)} />
                 <Metric label="Numero avisos" value={providerConfig?.admin_notification_phone || "-"} />
                 <Metric label="Pendientes" value={whatsappStatus?.pending || 0} />
                 <Metric label="Enviados" value={whatsappStatus?.sent || 0} />

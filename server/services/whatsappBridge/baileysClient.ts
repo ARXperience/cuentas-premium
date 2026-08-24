@@ -19,6 +19,8 @@ let lastError: string | null = null;
 let initStarted = false;
 let inboundHandler: WhatsAppInboundHandler | null = null;
 let connectedNumber: string | null = null;
+let lastConnectionActivityAt = Date.now();
+let lastConnectedAt: Date | null = null;
 let nextInitializationAt = 0;
 let socketGeneration = 0;
 let activeAuth: Awaited<ReturnType<typeof createBaileysDatabaseAuthState>> | null = null;
@@ -35,6 +37,10 @@ function isEnabled() {
 
 function retryDelayMs() {
   return Number(process.env.WHATSAPP_RECONNECT_DELAY_SECONDS || 10) * 1000;
+}
+
+function staleConnectingMs() {
+  return Number(process.env.WHATSAPP_STALE_CONNECTING_SECONDS || 120) * 1000;
 }
 
 function sanitizeError(error: unknown) {
@@ -86,6 +92,32 @@ function scheduleReconnect(statusCode?: number) {
       : Date.now() + retryDelayMs();
 }
 
+function endSocketQuietly(currentSocket: WASocket | null, reason: string) {
+  const end = (currentSocket as unknown as { end?: (error?: Error) => void } | null)?.end;
+  if (typeof end === 'function') {
+    try {
+      end.call(currentSocket, new Error(reason));
+    } catch {
+      // Baileys may already have closed the socket.
+    }
+  }
+}
+
+function resetStaleConnectingSocket(reason: string) {
+  const currentSocket = socket;
+  ++socketGeneration;
+  socket = null;
+  activeAuth = null;
+  initStarted = false;
+  qrCodeDataUrl = null;
+  connectedNumber = null;
+  connection = 'disconnected';
+  lastError = reason;
+  nextInitializationAt = 0;
+  lastConnectionActivityAt = Date.now();
+  endSocketQuietly(currentSocket, reason);
+}
+
 export function setWhatsAppInboundHandler(handler: WhatsAppInboundHandler | null) {
   inboundHandler = handler;
 }
@@ -106,10 +138,14 @@ export async function initializeWhatsAppClient(prisma: PrismaClient) {
     connection = 'disabled';
     return;
   }
+  if ((initStarted || socket) && connection === 'connecting' && Date.now() - lastConnectionActivityAt > staleConnectingMs()) {
+    resetStaleConnectingSocket('Reconectando WhatsApp automaticamente: la vinculacion quedo sin respuesta.');
+  }
   if (Date.now() < nextInitializationAt || initStarted || socket) return;
 
   initStarted = true;
   connection = 'connecting';
+  lastConnectionActivityAt = Date.now();
   lastError = null;
   const generation = ++socketGeneration;
 
@@ -142,6 +178,7 @@ export async function initializeWhatsAppClient(prisma: PrismaClient) {
 
     currentSocket.ev.on('connection.update', (update) => {
       if (generation !== socketGeneration) return;
+      lastConnectionActivityAt = Date.now();
 
       if (update.qr) {
         connection = 'connecting';
@@ -159,6 +196,7 @@ export async function initializeWhatsAppClient(prisma: PrismaClient) {
         connection = 'connected';
         qrCodeDataUrl = null;
         connectedNumber = normalizeOptionalNumber(currentSocket.user?.id);
+        lastConnectedAt = new Date();
         nextInitializationAt = 0;
         lastError = null;
         initStarted = false;
@@ -219,6 +257,7 @@ export async function initializeWhatsAppClient(prisma: PrismaClient) {
     qrCodeDataUrl = null;
     lastError = sanitizeError(error);
     nextInitializationAt = Date.now() + retryDelayMs();
+    lastConnectionActivityAt = Date.now();
   }
 }
 
@@ -242,6 +281,7 @@ export async function disconnectWhatsAppClient() {
   initStarted = false;
   qrCodeDataUrl = null;
   connectedNumber = null;
+  lastConnectedAt = null;
   nextInitializationAt = 0;
 
   await currentSocket?.logout().catch(() => undefined);
@@ -255,6 +295,7 @@ export function getWhatsAppRuntimeStatus() {
     mode: 'baileys',
     connection,
     connectedNumber,
+    lastConnectedAt: lastConnectedAt?.toISOString() || null,
     qrPending: Boolean(qrCodeDataUrl),
     qr: qrCodeDataUrl,
     lastError

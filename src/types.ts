@@ -297,6 +297,7 @@ export type WhatsAppBridgeStatus = {
   mode: string;
   connection: "disabled" | "disconnected" | "connecting" | "connected";
   connectedNumber?: string | null;
+  lastConnectedAt?: string | null;
   qrPending: boolean;
   lastError?: string | null;
   pending: number;

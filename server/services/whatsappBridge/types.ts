@@ -5,6 +5,7 @@ export type WhatsAppBridgeStatus = {
   mode: string;
   connection: WhatsAppBridgeConnection;
   connectedNumber?: string | null;
+  lastConnectedAt?: string | null;
   qrPending: boolean;
   lastError?: string | null;
   pending: number;

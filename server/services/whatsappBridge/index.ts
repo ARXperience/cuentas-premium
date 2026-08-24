@@ -4,6 +4,9 @@ import { disableWhatsAppClient, disconnectWhatsAppClient, enableWhatsAppClient, 
 import type { AddMovement, QueueWhatsAppMessageInput, WhatsAppInboundHandler, WhatsAppOutboxFailureHandler } from './types.js';
 
 let workerStarted = false;
+let activePrisma: PrismaClient | null = null;
+let activeAddMovement: AddMovement | null = null;
+let activeFailureHandler: WhatsAppOutboxFailureHandler | undefined;
 
 function workerIntervalMs() {
   return Number(process.env.WHATSAPP_WORKER_INTERVAL_SECONDS || (process.env.NODE_ENV === 'production' ? 30 : 5)) * 1000;
@@ -49,16 +52,28 @@ export function enableWhatsAppBridge() {
 }
 
 export async function startWhatsAppBridgeWorker(prisma: PrismaClient, addMovement: AddMovement, inboundHandler?: WhatsAppInboundHandler, onFinalFailure?: WhatsAppOutboxFailureHandler) {
+  activePrisma = prisma;
+  activeAddMovement = addMovement;
+  activeFailureHandler = onFinalFailure;
   if (inboundHandler) setWhatsAppInboundHandler(inboundHandler);
   if (!workerStarted) {
     workerStarted = true;
     windowlessInterval(async () => {
-      await initializeWhatsAppClient(prisma);
-      if (!shouldPollWhatsAppOutbox()) return;
-      await processWhatsAppOutbox(prisma, addMovement, onFinalFailure);
+      await runWhatsAppBridgeTick();
     }, workerIntervalMs());
   }
-  await initializeWhatsAppClient(prisma);
+  await runWhatsAppBridgeTick(true);
+}
+
+export async function wakeWhatsAppBridgeWorker() {
+  await runWhatsAppBridgeTick(true);
+}
+
+async function runWhatsAppBridgeTick(force = false) {
+  if (!activePrisma || !activeAddMovement) return;
+  await initializeWhatsAppClient(activePrisma);
+  if (!force && !shouldPollWhatsAppOutbox()) return;
+  await processWhatsAppOutbox(activePrisma, activeAddMovement, activeFailureHandler);
 }
 
 function windowlessInterval(task: () => Promise<void>, ms: number) {

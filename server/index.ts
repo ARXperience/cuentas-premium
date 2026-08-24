@@ -17,7 +17,8 @@ import {
   getWhatsAppBridgeStatus,
   queueWhatsAppNotification,
   retryFailedWhatsAppOutbox,
-  startWhatsAppBridgeWorker
+  startWhatsAppBridgeWorker,
+  wakeWhatsAppBridgeWorker
 } from './services/whatsappBridge/index.js';
 import { parseAccountMessage, serviceKeyFromText } from './services/inboundDeliveryParser/index.js';
 import type { ParsedAccountMessage, ParsedDeliveryAccount } from './services/inboundDeliveryParser/index.js';
@@ -373,6 +374,10 @@ function serializeProduct(product: any, viewer?: AuthUser) {
 
 async function addMovement(type: string, description: string, user_id?: string, order_id?: string) {
   await prisma.movement.create({ data: { type, description, user_id, order_id } });
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function generateOrderNumber() {
@@ -842,6 +847,21 @@ async function getAnyProviderPaymentConfig(providerId?: string | null) {
   });
 }
 
+async function ensureWhatsAppBridgeStarted() {
+  enableWhatsAppBridge();
+  await startWhatsAppBridgeWorker(prisma, addMovement, processInboundDeliveryMessage, handleWhatsAppOutboxFinalFailure);
+}
+
+async function waitForWhatsAppQrOrConnection(maxWaitMs = 7000) {
+  const startedAt = Date.now();
+  let status = getWhatsAppBridgeRuntimeStatus();
+  while (!status.qrPending && status.connection !== 'connected' && !status.lastError && Date.now() - startedAt < maxWaitMs) {
+    await delay(350);
+    status = getWhatsAppBridgeRuntimeStatus();
+  }
+  return status;
+}
+
 async function notifyAdminPaymentPending(order: any, payout: any) {
   const adminNumber = await getAdminNotificationPhone();
   const bridgeStatus = await getWhatsAppBridgeStatus(prisma);
@@ -859,6 +879,11 @@ async function notifyAdminPaymentPending(order: any, payout: any) {
       message: messages.providerForward,
       orderId: order.id
     });
+    void ensureWhatsAppBridgeStarted()
+      .then(() => wakeWhatsAppBridgeWorker())
+      .catch((error: unknown) => {
+        console.error('[whatsapp:order-notification]', error instanceof Error ? error.message : error);
+      });
     await prisma.order.update({ where: { id: order.id }, data: { admin_notification_channel: 'pending' } });
     await addMovement('whatsapp.outbox_created', `Dos mensajes de la orden ${order.order_number} agregados a WhatsApp Bridge: resumen admin y texto para reenviar al proveedor.`, order.user_id, order.id);
     await addMovement('admin.payment_notification_whatsapp_pending', `Dos mensajes WhatsApp pendientes para orden ${order.order_number}; estado bridge: ${bridgeStatus.connection}.`, order.user_id, order.id);
@@ -2085,6 +2110,12 @@ const providerConfigSchema = z.object({
 
 app.get('/api/admin/whatsapp/status', sensitiveLimiter, requireAuth, requireRole('admin'), async (_req, res, next) => {
   try {
+    const adminEnabled = await getSettingValue('whatsapp_bridge_admin_enabled');
+    if (adminEnabled === 'true') {
+      void ensureWhatsAppBridgeStarted().catch((error: unknown) => {
+        console.error('[whatsapp:status-start]', error instanceof Error ? error.message : error);
+      });
+    }
     res.json({ status: await getWhatsAppBridgeStatus(prisma) });
   } catch (error) {
     next(error);
@@ -2093,6 +2124,8 @@ app.get('/api/admin/whatsapp/status', sensitiveLimiter, requireAuth, requireRole
 
 app.get('/api/admin/whatsapp/qr', sensitiveLimiter, requireAuth, requireRole('admin'), async (_req, res, next) => {
   try {
+    await ensureWhatsAppBridgeStarted();
+    await waitForWhatsAppQrOrConnection(5000);
     res.json({ qr: getWhatsAppBridgeQr() });
   } catch (error) {
     next(error);
@@ -2101,12 +2134,9 @@ app.get('/api/admin/whatsapp/qr', sensitiveLimiter, requireAuth, requireRole('ad
 
 app.post('/api/admin/whatsapp/connect', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
   try {
-    enableWhatsAppBridge();
     await upsertSetting('whatsapp_bridge_admin_enabled', 'true');
-    void startWhatsAppBridgeWorker(prisma, addMovement, processInboundDeliveryMessage, handleWhatsAppOutboxFinalFailure)
-      .catch((error: unknown) => {
-        console.error('[whatsapp:connect]', error instanceof Error ? error.message : error);
-      });
+    await ensureWhatsAppBridgeStarted();
+    await waitForWhatsAppQrOrConnection(7000);
     await addMovement('whatsapp.connection_requested', 'Admin inicio la vinculacion de WhatsApp Bridge.', req.user!.id);
     res.status(202).json({
       status: await getWhatsAppBridgeStatus(prisma),
@@ -2120,6 +2150,8 @@ app.post('/api/admin/whatsapp/connect', sensitiveLimiter, requireAuth, requireRo
 app.post('/api/admin/whatsapp/retry-failed', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
   try {
     await retryFailedWhatsAppOutbox(prisma);
+    await ensureWhatsAppBridgeStarted();
+    await wakeWhatsAppBridgeWorker();
     await addMovement('whatsapp.retry_failed', 'Admin reintento mensajes fallidos del WhatsApp Bridge.', req.user!.id);
     res.json({ status: await getWhatsAppBridgeStatus(prisma) });
   } catch (error) {
@@ -2146,6 +2178,8 @@ app.post('/api/admin/whatsapp/test', sensitiveLimiter, requireAuth, requireRole(
       recipient: adminNumber,
       message: `Mensaje de prueba Centro Digital. Fecha: ${formatDateTimeCO(new Date())}`
     });
+    await ensureWhatsAppBridgeStarted();
+    await wakeWhatsAppBridgeWorker();
     await addMovement('whatsapp.outbox_created', 'Mensaje de prueba al WhatsApp del admin agregado a cola.', req.user!.id);
     res.json({ status: await getWhatsAppBridgeStatus(prisma), message: 'Mensaje de prueba agregado a la cola.' });
   } catch (error) {
@@ -2613,15 +2647,17 @@ app.listen(port, '0.0.0.0', () => {
   startWhatsAppBridgeAlertMonitor();
   void (async () => {
     const adminEnabled = await getSettingValue('whatsapp_bridge_admin_enabled');
+    const autostartFlag = process.env.WHATSAPP_BRIDGE_AUTOSTART?.trim().toLowerCase();
     const shouldStart =
       adminEnabled !== 'false' &&
-      process.env.WHATSAPP_BRIDGE_AUTOSTART?.trim().toLowerCase() === 'true';
+      autostartFlag !== 'false' &&
+      autostartFlag !== '0' &&
+      autostartFlag !== 'off';
     if (!shouldStart) {
       console.log('WhatsApp Bridge autostart desactivado; el panel interno permanece disponible.');
       return;
     }
-    enableWhatsAppBridge();
-    await startWhatsAppBridgeWorker(prisma, addMovement, processInboundDeliveryMessage, handleWhatsAppOutboxFinalFailure);
+    await ensureWhatsAppBridgeStarted();
   })().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : error);
   });

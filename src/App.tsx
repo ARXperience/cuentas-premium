@@ -663,15 +663,18 @@ function App() {
       const data = await request<{ status: WhatsAppBridgeStatus; message: string }>("/api/admin/whatsapp/connect", { method: "POST" });
       setWhatsappStatus(data.status);
       setNotice(data.message || "Vinculacion de WhatsApp iniciada.");
-      for (let attempt = 0; attempt < 8; attempt += 1) {
+      for (let attempt = 0; attempt < 18; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1500));
         const current = await request<{ status: WhatsAppBridgeStatus }>("/api/admin/whatsapp/status");
         setWhatsappStatus(current.status);
         if (current.status.qrPending) {
           const qrData = await request<{ qr: string | null }>("/api/admin/whatsapp/qr");
           setWhatsappQr(qrData.qr);
+          if (qrData.qr) break;
+        } else {
+          setWhatsappQr(null);
         }
-        if (current.status.qrPending || current.status.connection === "connected" || current.status.lastError) break;
+        if (current.status.connection === "connected" || current.status.lastError) break;
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "No se pudo iniciar la vinculacion.");

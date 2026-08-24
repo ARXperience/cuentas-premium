@@ -62,12 +62,23 @@ async function saveEncryptedSetting(prisma: PrismaClient, key: string, value: un
 }
 
 export async function createBaileysDatabaseAuthState(prisma: PrismaClient) {
-  const creds =
-    await readEncryptedSetting<AuthenticationCreds>(prisma, BAILEYS_CREDS_SETTING)
-    || initAuthCreds();
-  const keySnapshot =
-    await readEncryptedSetting<SignalKeySnapshot>(prisma, BAILEYS_KEYS_SETTING)
-    || {};
+  let creds: AuthenticationCreds;
+  let keySnapshot: SignalKeySnapshot;
+
+  try {
+    creds =
+      await readEncryptedSetting<AuthenticationCreds>(prisma, BAILEYS_CREDS_SETTING)
+      || initAuthCreds();
+    keySnapshot =
+      await readEncryptedSetting<SignalKeySnapshot>(prisma, BAILEYS_KEYS_SETTING)
+      || {};
+  } catch (_error) {
+    await prisma.appSetting.deleteMany({
+      where: { key: { in: [BAILEYS_CREDS_SETTING, BAILEYS_KEYS_SETTING] } }
+    });
+    creds = initAuthCreds();
+    keySnapshot = {};
+  }
   let writeQueue = Promise.resolve();
 
   const queueWrite = (task: () => Promise<void>) => {

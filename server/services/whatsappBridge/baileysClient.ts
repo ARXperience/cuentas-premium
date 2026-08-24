@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  fetchLatestBaileysVersion,
   jidNormalizedUser,
   normalizeMessageContent
 } from 'baileys';
@@ -115,10 +116,15 @@ export async function initializeWhatsAppClient(prisma: PrismaClient) {
   try {
     const auth = await createBaileysDatabaseAuthState(prisma);
     activeAuth = auth;
+    const { version } = await fetchLatestBaileysVersion();
     const currentSocket = makeWASocket({
       auth: auth.state,
+      version,
       logger,
       browser: Browsers.windows('Centro Digital'),
+      connectTimeoutMs: Number(process.env.WHATSAPP_CONNECT_TIMEOUT_SECONDS || 60) * 1000,
+      defaultQueryTimeoutMs: Number(process.env.WHATSAPP_QUERY_TIMEOUT_SECONDS || 60) * 1000,
+      keepAliveIntervalMs: Number(process.env.WHATSAPP_KEEPALIVE_SECONDS || 20) * 1000,
       markOnlineOnConnect: false,
       syncFullHistory: false,
       shouldSyncHistoryMessage: () => false,
@@ -178,7 +184,7 @@ export async function initializeWhatsAppClient(prisma: PrismaClient) {
         lastError =
           statusCode === DisconnectReason.restartRequired
             ? null
-            : sanitizeError(update.lastDisconnect?.error);
+            : `${sanitizeError(update.lastDisconnect?.error)}${statusCode ? ` (codigo ${statusCode})` : ''}`;
         scheduleReconnect(statusCode);
       }
     });

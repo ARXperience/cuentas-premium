@@ -1090,6 +1090,14 @@ type ClientDeliveryRow = {
   totalValue: number;
 };
 
+type DeliveredAccountDirectoryRow = {
+  account: DeliveredAccount;
+  email: string;
+  password: string;
+  profile: string;
+  pin: string;
+};
+
 function orderItemUnitValue(item: OrderItem) {
   return item.unit_price || (item.subtotal && item.quantity ? Math.round(item.subtotal / item.quantity) : 0);
 }
@@ -1120,6 +1128,20 @@ function buildClientDeliveryRows(orders: Order[]): ClientDeliveryRow[] {
         };
       });
     })
+  ).sort((a, b) => new Date(b.account.delivered_at).getTime() - new Date(a.account.delivered_at).getTime());
+}
+
+function buildDeliveredAccountDirectory(orders: Order[]): DeliveredAccountDirectoryRow[] {
+  return orders.flatMap((order) =>
+    order.items.flatMap((item) =>
+      (item.delivered_accounts || []).map((account) => ({
+        account,
+        email: account.delivered_email || "-",
+        password: readablePassword(account.delivered_password),
+        profile: account.profile_name || "-",
+        pin: account.pin || "-"
+      }))
+    )
   ).sort((a, b) => new Date(b.account.delivered_at).getTime() - new Date(a.account.delivered_at).getTime());
 }
 
@@ -1728,12 +1750,14 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
     setParserRawText("");
   }
 
-  type AdminModule = "dashboard" | "orders" | "process" | "payouts" | "products" | "servimil" | "provider" | "whatsapp" | "notifications" | "movements" | "trash" | "logs";
+  type AdminModule = "dashboard" | "orders" | "accounts" | "process" | "payouts" | "products" | "servimil" | "provider" | "whatsapp" | "notifications" | "movements" | "trash" | "logs";
   const [adminModule, setAdminModule] = useState<AdminModule>("dashboard");
   const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
+  const [deliveredAccountSearch, setDeliveredAccountSearch] = useState("");
   const adminModules: Array<{ id: AdminModule; label: string }> = [
     { id: "dashboard", label: "Dashboard" },
     { id: "orders", label: "Pedidos" },
+    { id: "accounts", label: "Cuentas entregadas" },
     { id: "process", label: "Procesar cuentas" },
     { id: "payouts", label: "Pagos al proveedor" },
     { id: "products", label: "Productos" },
@@ -1752,6 +1776,13 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   const bridgeConnectedNumber = normalizePhoneForCompare(whatsappStatus?.connectedNumber);
   const adminNotificationNumber = normalizePhoneForCompare(providerConfig?.admin_notification_phone);
   const adminUsesBridgeNumber = Boolean(bridgeConnectedNumber && adminNotificationNumber && bridgeConnectedNumber === adminNotificationNumber);
+  const deliveredAccountDirectory = buildDeliveredAccountDirectory(orders);
+  const normalizedDeliveredAccountSearch = deliveredAccountSearch.trim().toLowerCase();
+  const visibleDeliveredAccountDirectory = normalizedDeliveredAccountSearch
+    ? deliveredAccountDirectory.filter((row) =>
+        [row.email, row.password, row.profile, row.pin].some((value) => value.toLowerCase().includes(normalizedDeliveredAccountSearch))
+      )
+    : deliveredAccountDirectory;
   const selectAdminModule = (module: AdminModule) => {
     setAdminModule(module);
     setAdminSidebarOpen(false);
@@ -1957,6 +1988,49 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
       )}
       <div className="admin-module-content">
         {adminModule === "orders" && <OrderTable orders={orders} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} saveDeliveredAccountEdit={saveDeliveredAccountEdit} deleteOrder={deleteOrder} title="Pedidos" />}
+        {adminModule === "accounts" && (
+          <section className="glass-panel admin-module-panel delivered-directory-panel">
+            <SectionTitle eyebrow="Cuentas" title="Cuentas entregadas" compact />
+            <div className="delivered-directory-toolbar">
+              <label className="search-field compact-search">
+                <span>Buscar</span>
+                <input
+                  value={deliveredAccountSearch}
+                  onChange={(event) => setDeliveredAccountSearch(event.target.value)}
+                  placeholder="Buscar por correo, contrasena, perfil o PIN"
+                />
+              </label>
+              <span>{visibleDeliveredAccountDirectory.length} de {deliveredAccountDirectory.length} cuentas</span>
+            </div>
+            <div className="table-scroll delivered-directory-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Correo</th>
+                    <th>Contrasena</th>
+                    <th>Perfil</th>
+                    <th>PIN</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleDeliveredAccountDirectory.map((row) => (
+                    <tr key={row.account.id}>
+                      <td>{row.email}</td>
+                      <td><span className="table-secret-value">{row.password}</span></td>
+                      <td>{row.profile}</td>
+                      <td>{row.pin}</td>
+                    </tr>
+                  ))}
+                  {visibleDeliveredAccountDirectory.length === 0 && (
+                    <tr>
+                      <td colSpan={4}>No se encontraron cuentas entregadas.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
         {adminModule === "process" && processAccountsModule}
         {adminModule === "payouts" && (
           <section className="glass-panel payments-panel admin-module-panel">

@@ -2516,6 +2516,74 @@ th {
   background: rgba(248, 250, 252, 0.96);
 }
 
+.delivered-directory-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.delivered-directory-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.delivered-directory-toolbar > span {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.search-field {
+  display: grid;
+  gap: 8px;
+}
+
+.search-field span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.search-field input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #0f172a;
+  font: inherit;
+  font-weight: 800;
+  padding: 0 16px;
+  outline: none;
+}
+
+.search-field input:focus {
+  border-color: rgba(37, 99, 235, 0.42);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08);
+}
+
+.delivered-directory-table {
+  max-height: 640px;
+  overflow: auto;
+}
+
+.delivered-directory-table table {
+  min-width: 760px;
+}
+
+.delivered-directory-table th,
+.delivered-directory-table td {
+  width: 25%;
+}
+
+.delivered-directory-table td {
+  vertical-align: top;
+  word-break: break-word;
+}
+
 .table-copy {
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 8px;
@@ -2882,6 +2950,7 @@ th {
   .auth-role-grid,
   .mini-grid,
   .delivered-toolbar,
+  .delivered-directory-toolbar,
   .delivery-edit-form,
   .account-access-grid,
   .cart-summary-row,

@@ -40,6 +40,16 @@ function orderLabel(order?: Pick<Order, "id" | "order_number"> | null) {
   return order?.order_number || (order?.id ? `#${order.id.slice(0, 8)}` : "-");
 }
 
+function invoiceStatusLabel(status?: string | null) {
+  const labels: Record<string, string> = {
+    draft: "Borrador",
+    sent: "Enviada",
+    paid: "Pagada",
+    cancelled: "Cancelada"
+  };
+  return labels[String(status || "").toLowerCase()] || status || "-";
+}
+
 function readablePassword(value?: string | null) {
   if (!value) return "-";
   if (value === "***") return "Pendiente de actualizacion";
@@ -1660,6 +1670,249 @@ function currentInvoicePeriod() {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function escapeHtml(value?: string | number | null) {
+  const replacements: Record<string, string> = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;"
+  };
+  return String(value ?? "").replace(/[&<>"']/g, (character) => replacements[character]);
+}
+
+function absoluteAssetUrl(src: string) {
+  try {
+    return new URL(src, window.location.origin).href;
+  } catch {
+    return src;
+  }
+}
+
+function invoiceFileName(invoice: ClientInvoice, extension: "pdf" | "doc") {
+  return `${invoice.invoice_number || "factura"}-${invoice.period || "periodo"}.${extension}`.replace(/[^\w.-]+/g, "-");
+}
+
+function invoiceDocumentHtml(invoice: ClientInvoice, servimilUser?: User) {
+  const rows = invoice.lines.map((line) => `
+    <tr>
+      <td>${escapeHtml(orderLabel(line.order))}</td>
+      <td>${escapeHtml(line.description)}</td>
+      <td>${escapeHtml(line.account_email || "-")}</td>
+      <td>${escapeHtml(line.profile_name || "-")}</td>
+      <td>${escapeHtml(line.pin || "-")}</td>
+      <td>${escapeHtml(formatDateTime(line.ordered_at))}</td>
+      <td>${escapeHtml(formatDateTime(line.delivered_at))}</td>
+      <td>${escapeHtml(line.quantity)}</td>
+      <td>${escapeHtml(money.format(line.unit_price))}</td>
+      <td>${escapeHtml(money.format(line.total))}</td>
+    </tr>`).join("");
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(invoice.invoice_number)}</title>
+  <style>
+    body { margin: 0; padding: 28px; color: #0f172a; font-family: Arial, Helvetica, sans-serif; background: #f8fafc; }
+    .paper { max-width: 980px; margin: 0 auto; padding: 34px; background: #fff; border: 1px solid #dbe4f0; border-radius: 18px; }
+    .top { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; border-bottom: 2px solid #e8eef7; padding-bottom: 20px; }
+    .brand, .client { display: flex; gap: 12px; align-items: center; }
+    .brand img, .client img { width: 52px; height: 52px; object-fit: contain; }
+    h1 { margin: 22px 0 6px; font-size: 30px; }
+    h2, p { margin: 0; }
+    .muted { color: #64748b; font-size: 12px; font-weight: 700; }
+    .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 22px 0; }
+    .meta div { border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; }
+    .label { display: block; color: #64748b; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    .value { display: block; margin-top: 5px; font-size: 15px; font-weight: 800; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { background: #f1f5f9; color: #475569; text-align: left; }
+    th, td { border-bottom: 1px solid #e2e8f0; padding: 9px 8px; vertical-align: top; }
+    .total { display: flex; justify-content: flex-end; gap: 24px; align-items: center; margin-top: 22px; font-size: 20px; font-weight: 900; }
+    .notes { margin-top: 20px; padding: 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <main class="paper">
+    <section class="top">
+      <div class="brand">
+        <img src="${escapeHtml(absoluteAssetUrl(centroDigitalLogo))}" alt="Centro Digital" />
+        <div>
+          <h2>Centro Digital de Diseno</h2>
+          <p class="muted">Plataforma de gestion de activos</p>
+        </div>
+      </div>
+      <div class="client">
+        <img src="${escapeHtml(absoluteAssetUrl(servimilLogo))}" alt="Servimil" />
+        <div>
+          <h2>${escapeHtml(servimilUser?.name || "Servimil")}</h2>
+          <p class="muted">Cliente codigo 1111</p>
+        </div>
+      </div>
+    </section>
+    <h1>${escapeHtml(invoice.title || "Factura mensual")}</h1>
+    <p class="muted">${escapeHtml(invoice.invoice_number)} - Periodo ${escapeHtml(invoice.period)}</p>
+    <section class="meta">
+      <div><span class="label">Factura</span><span class="value">${escapeHtml(invoice.invoice_number)}</span></div>
+      <div><span class="label">Emision</span><span class="value">${escapeHtml(formatDateTime(invoice.issue_date))}</span></div>
+      <div><span class="label">Vencimiento</span><span class="value">${escapeHtml(formatDateTime(invoice.due_date))}</span></div>
+      <div><span class="label">Estado</span><span class="value">${escapeHtml(invoiceStatusLabel(invoice.status))}</span></div>
+      <div><span class="label">Cliente</span><span class="value">${escapeHtml(servimilUser?.name || "Servimil")}</span></div>
+      <div><span class="label">Total</span><span class="value">${escapeHtml(money.format(invoice.total_amount))}</span></div>
+    </section>
+    <table>
+      <thead>
+        <tr>
+          <th>Orden</th>
+          <th>Servicio</th>
+          <th>Correo</th>
+          <th>Perfil</th>
+          <th>PIN</th>
+          <th>Pedido</th>
+          <th>Entrega</th>
+          <th>Cant.</th>
+          <th>Valor</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>${rows || `<tr><td colspan="10">No hay cuentas entregadas para este periodo.</td></tr>`}</tbody>
+    </table>
+    <div class="total"><span>Total a cobrar</span><strong>${escapeHtml(money.format(invoice.total_amount))}</strong></div>
+    ${invoice.notes ? `<div class="notes">${escapeHtml(invoice.notes)}</div>` : ""}
+  </main>
+</body>
+</html>`;
+}
+
+function downloadBlob(filename: string, mime: string, content: BlobPart) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function foldPdfText(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E]/g, " ");
+}
+
+function escapePdfText(value: string) {
+  return foldPdfText(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").replace(/\s+/g, " ").trim();
+}
+
+function wrapPdfText(value: string, maxLength = 108) {
+  const words = foldPdfText(value).split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  words.forEach((word) => {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > maxLength && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  });
+  if (current) lines.push(current);
+  return lines.length ? lines : [""];
+}
+
+function invoicePdfLines(invoice: ClientInvoice, servimilUser?: User) {
+  const lines: string[] = [
+    "CENTRO DIGITAL DE DISENO",
+    "Factura mensual",
+    `Factura: ${invoice.invoice_number}`,
+    `Cliente: ${servimilUser?.name || "Servimil"} - Codigo 1111`,
+    `Periodo: ${invoice.period}`,
+    `Emision: ${formatDateTime(invoice.issue_date)}`,
+    `Vencimiento: ${formatDateTime(invoice.due_date)}`,
+    `Estado: ${invoiceStatusLabel(invoice.status)}`,
+    `Total a cobrar: ${money.format(invoice.total_amount)}`,
+    "",
+    "DETALLE"
+  ];
+
+  invoice.lines.forEach((line, index) => {
+    lines.push(`${index + 1}. ${orderLabel(line.order)} - ${line.description}`);
+    lines.push(`   Correo: ${line.account_email || "-"} | Perfil: ${line.profile_name || "-"} | PIN: ${line.pin || "-"}`);
+    lines.push(`   Pedido: ${formatDateTime(line.ordered_at)} | Entrega: ${formatDateTime(line.delivered_at)} | Cant: ${line.quantity} | Valor: ${money.format(line.unit_price)} | Total: ${money.format(line.total)}`);
+    if (line.notes) lines.push(`   Notas: ${line.notes}`);
+    lines.push("");
+  });
+
+  if (!invoice.lines.length) lines.push("No hay cuentas entregadas para este periodo.");
+  if (invoice.notes) lines.push(`Notas generales: ${invoice.notes}`);
+  return lines.flatMap((line) => wrapPdfText(line));
+}
+
+function createInvoicePdf(invoice: ClientInvoice, servimilUser?: User) {
+  const pageWidth = 595;
+  const pageHeight = 842;
+  const marginX = 42;
+  const startY = 800;
+  const lineHeight = 13;
+  const maxLinesPerPage = 55;
+  const lines = invoicePdfLines(invoice, servimilUser);
+  const chunks: string[][] = [];
+  for (let index = 0; index < lines.length; index += maxLinesPerPage) {
+    chunks.push(lines.slice(index, index + maxLinesPerPage));
+  }
+
+  const objects: string[] = [];
+  const catalogId = 1;
+  const pagesId = 2;
+  const fontId = 3;
+  let nextId = 4;
+  const pageIds: number[] = [];
+  objects[fontId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+
+  chunks.forEach((chunk) => {
+    const content = [
+      "BT",
+      "/F1 10 Tf",
+      `${marginX} ${startY} Td`,
+      `${lineHeight} TL`,
+      ...chunk.map((line) => `(${escapePdfText(line)}) Tj T*`),
+      "ET"
+    ].join("\n");
+    const contentId = nextId++;
+    const pageId = nextId++;
+    objects[contentId] = `<< /Length ${new TextEncoder().encode(content).length} >>\nstream\n${content}\nendstream`;
+    objects[pageId] = `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >>`;
+    pageIds.push(pageId);
+  });
+
+  objects[catalogId] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
+  objects[pagesId] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`;
+
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (let id = 1; id < objects.length; id += 1) {
+    offsets[id] = new TextEncoder().encode(pdf).length;
+    pdf += `${id} 0 obj\n${objects[id]}\nendobj\n`;
+  }
+  const xrefStart = new TextEncoder().encode(pdf).length;
+  pdf += `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
+  for (let id = 1; id < objects.length; id += 1) {
+    pdf += `${String(offsets[id]).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length} /Root ${catalogId} 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  return pdf;
+}
+
+function downloadInvoiceDoc(invoice: ClientInvoice, servimilUser?: User) {
+  downloadBlob(invoiceFileName(invoice, "doc"), "application/msword;charset=utf-8", invoiceDocumentHtml(invoice, servimilUser));
+}
+
+function downloadInvoicePdf(invoice: ClientInvoice, servimilUser?: User) {
+  downloadBlob(invoiceFileName(invoice, "pdf"), "application/pdf", createInvoicePdf(invoice, servimilUser));
+}
+
 function OrderWorkCard({ order, deliver, busy }: {
   order: Order;
   deliver: (orderId: string, item: OrderItem, event: FormEvent<HTMLFormElement>) => void;
@@ -1699,6 +1952,90 @@ function OrderWorkCard({ order, deliver, busy }: {
   );
 }
 
+function InvoiceDocumentPreview({ invoice, servimilUser }: { invoice: ClientInvoice; servimilUser?: User }) {
+  return (
+    <section className="invoice-preview-shell" aria-label="Vista previa de factura">
+      <div className="invoice-preview-paper">
+        <header className="invoice-preview-header">
+          <div className="invoice-preview-brand">
+            <img src={centroDigitalLogo} alt="Centro Digital" />
+            <div>
+              <strong>Centro Digital de Diseno</strong>
+              <span>Plataforma de gestion de activos</span>
+            </div>
+          </div>
+          <div className="invoice-preview-client">
+            <img src={servimilLogo} alt="Servimil" />
+            <div>
+              <strong>{servimilUser?.name || "Servimil"}</strong>
+              <span>Cliente codigo 1111</span>
+            </div>
+          </div>
+        </header>
+
+        <div className="invoice-preview-title">
+          <span className="eyebrow">Vista previa</span>
+          <h2>{invoice.title || "Factura mensual"}</h2>
+          <p>{invoice.invoice_number} - Periodo {invoice.period}</p>
+        </div>
+
+        <div className="invoice-preview-meta">
+          <div><span>Factura</span><strong>{invoice.invoice_number}</strong></div>
+          <div><span>Emision</span><strong>{formatDateTime(invoice.issue_date)}</strong></div>
+          <div><span>Vencimiento</span><strong>{formatDateTime(invoice.due_date)}</strong></div>
+          <div><span>Estado</span><strong>{invoiceStatusLabel(invoice.status)}</strong></div>
+          <div><span>Cliente</span><strong>{servimilUser?.name || "Servimil"}</strong></div>
+          <div><span>Total</span><strong>{money.format(invoice.total_amount)}</strong></div>
+        </div>
+
+        <div className="table-scroll invoice-preview-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Orden</th>
+                <th>Servicio</th>
+                <th>Correo</th>
+                <th>Perfil</th>
+                <th>PIN</th>
+                <th>Pedido</th>
+                <th>Entrega</th>
+                <th>Cant.</th>
+                <th>Valor</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoice.lines.map((line) => (
+                <tr key={line.id}>
+                  <td>{orderLabel(line.order)}</td>
+                  <td>{line.description}</td>
+                  <td>{line.account_email || "-"}</td>
+                  <td>{line.profile_name || "-"}</td>
+                  <td>{line.pin || "-"}</td>
+                  <td>{formatDateTime(line.ordered_at)}</td>
+                  <td>{formatDateTime(line.delivered_at)}</td>
+                  <td>{line.quantity}</td>
+                  <td>{money.format(line.unit_price)}</td>
+                  <td>{money.format(line.total)}</td>
+                </tr>
+              ))}
+              {invoice.lines.length === 0 && (
+                <tr><td colSpan={10}>No hay cuentas entregadas para este periodo.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <footer className="invoice-preview-total">
+          <span>Total a cobrar</span>
+          <strong>{money.format(invoice.total_amount)}</strong>
+        </footer>
+        {invoice.notes && <p className="invoice-preview-notes">{invoice.notes}</p>}
+      </div>
+    </section>
+  );
+}
+
 function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, saveClientInvoice }: {
   invoices: ClientInvoice[];
   servimilUser?: User;
@@ -1707,6 +2044,7 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
 }) {
   const [period, setPeriod] = useState(currentInvoicePeriod());
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(invoices[0]?.id || null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const selectedInvoice = invoices.find((invoice) => invoice.id === selectedInvoiceId) || invoices[0] || null;
   const totalPending = invoices.filter((invoice) => invoice.status !== "paid" && invoice.status !== "cancelled").reduce((sum, invoice) => sum + invoice.total_amount, 0);
 
@@ -1730,7 +2068,7 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
             Periodo
             <input type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
           </label>
-          <button className="btn-solid" type="button" onClick={() => generateServimilInvoice(period)}>Generar / sincronizar factura</button>
+          <button className="btn-solid" type="button" onClick={() => generateServimilInvoice(period)}>Generar factura ahora</button>
         </div>
       </div>
 
@@ -1758,7 +2096,7 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
         </aside>
 
         {selectedInvoice && (
-          <form className="invoice-editor" onSubmit={(event) => saveClientInvoice(selectedInvoice, event)}>
+          <form key={selectedInvoice.id} className="invoice-editor" onSubmit={(event) => saveClientInvoice(selectedInvoice, event)}>
             <div className="invoice-editor-head">
               <label>
                 Titulo
@@ -1835,7 +2173,11 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
             <div className="status-actions invoice-actions">
               <button className="btn-solid">Guardar factura</button>
               <button type="button" onClick={() => generateServimilInvoice(selectedInvoice.period)}>Actualizar con cuentas nuevas</button>
+              <button type="button" onClick={() => setPreviewOpen((open) => !open)}>{previewOpen ? "Ocultar vista previa" : "Vista previa"}</button>
+              <button type="button" onClick={() => downloadInvoicePdf(selectedInvoice, servimilUser)}>Descargar PDF</button>
+              <button type="button" onClick={() => downloadInvoiceDoc(selectedInvoice, servimilUser)}>Descargar DOC</button>
             </div>
+            {previewOpen && <InvoiceDocumentPreview invoice={selectedInvoice} servimilUser={servimilUser} />}
           </form>
         )}
       </div>

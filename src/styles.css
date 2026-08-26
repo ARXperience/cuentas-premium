@@ -2746,6 +2746,154 @@ th {
 
 .invoice-actions {
   justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.invoice-actions button {
+  width: auto;
+  min-width: 150px;
+}
+
+.invoice-preview-shell {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  background: rgba(241, 245, 249, 0.68);
+}
+
+.invoice-preview-paper {
+  display: grid;
+  gap: 18px;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 26px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 54px rgba(15, 23, 42, 0.09);
+}
+
+.invoice-preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.invoice-preview-brand,
+.invoice-preview-client {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.invoice-preview-brand img,
+.invoice-preview-client img {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.invoice-preview-brand strong,
+.invoice-preview-client strong {
+  display: block;
+  color: var(--text-main);
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.invoice-preview-brand span,
+.invoice-preview-client span,
+.invoice-preview-title p {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.invoice-preview-title {
+  display: grid;
+  gap: 5px;
+}
+
+.invoice-preview-title h2 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 30px;
+  line-height: 1.1;
+}
+
+.invoice-preview-meta {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.invoice-preview-meta div {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.78);
+}
+
+.invoice-preview-meta span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.invoice-preview-meta strong {
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 950;
+  overflow-wrap: anywhere;
+}
+
+.invoice-preview-table table {
+  min-width: 980px;
+}
+
+.invoice-preview-table th {
+  background: rgba(241, 245, 249, 0.88);
+}
+
+.invoice-preview-table th,
+.invoice-preview-table td {
+  padding: 10px 9px;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.invoice-preview-total {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 20px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  color: var(--text-main);
+  font-weight: 950;
+}
+
+.invoice-preview-total strong {
+  font-size: 26px;
+}
+
+.invoice-preview-notes {
+  margin: 0;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.78);
+  color: var(--text-muted);
+  font-weight: 800;
+  white-space: pre-wrap;
 }
 
 .muted-cell {
@@ -3096,6 +3244,7 @@ th {
   .billing-hero,
   .billing-layout,
   .invoice-editor-head,
+  .invoice-preview-meta,
   .delivery-edit-form,
   .account-access-grid,
   .cart-summary-row,
@@ -3106,6 +3255,10 @@ th {
 
   .inline-product.parser-account-card {
     grid-template-columns: 1fr;
+  }
+
+  .invoice-preview-header {
+    flex-direction: column;
   }
 
   .checkout-panel {

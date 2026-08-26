@@ -1054,11 +1054,21 @@ async function notifyAdminPaymentByEmail(order, payout, channel = 'email') {
     }
 }
 function whatsappDisconnectAlertGraceMs() {
-    return Number(process.env.WHATSAPP_DISCONNECT_ALERT_GRACE_SECONDS || 45) * 1000;
+    return Number(process.env.WHATSAPP_DISCONNECT_ALERT_GRACE_SECONDS || (process.env.NODE_ENV === 'production' ? 900 : 45)) * 1000;
+}
+function whatsappDisconnectAlertCooldownMs() {
+    return Number(process.env.WHATSAPP_DISCONNECT_ALERT_COOLDOWN_SECONDS || (process.env.NODE_ENV === 'production' ? 21600 : 300)) * 1000;
+}
+function whatsappDisconnectAlertChannels() {
+    return String(process.env.WHATSAPP_DISCONNECT_ALERT_CHANNELS || 'email')
+        .split(',')
+        .map((channel) => channel.trim().toLowerCase())
+        .filter(Boolean);
 }
 async function notifyAdminWhatsAppBridgeDisconnected(status) {
     const adminPhone = await getAdminNotificationPhone() || process.env.WHATSAPP_ADMIN_PHONE || '3046282664';
     const adminEmail = await getAdminNotificationEmail();
+    const channels = whatsappDisconnectAlertChannels();
     const message = [
         'ALERTA WHATSAPP BRIDGE DESCONECTADO',
         '',
@@ -1070,12 +1080,12 @@ async function notifyAdminWhatsAppBridgeDisconnected(status) {
         'Accion requerida:',
         'Ingresa al panel Admin > WhatsApp admin y revisa la vinculacion. Si aparece QR, vincula nuevamente el numero.'
     ].join('\n');
-    if (adminPhone) {
+    if (adminPhone && channels.includes('whatsapp')) {
         await queueWhatsAppNotification(prisma, { recipient: adminPhone, message });
         await addMovement('whatsapp.bridge_disconnect_alert_queued', `Alerta de desconexion WhatsApp agregada a la cola para ${adminPhone}.`);
     }
     const smtpConfig = await getSmtpConfig();
-    if (adminEmail && emailConfigured(smtpConfig)) {
+    if (channels.includes('email') && adminEmail && emailConfigured(smtpConfig)) {
         try {
             await sendSmtpEmail({
                 to: adminEmail,
@@ -1090,7 +1100,7 @@ async function notifyAdminWhatsAppBridgeDisconnected(status) {
         }
     }
     else {
-        await addMovement('whatsapp.bridge_disconnect_email_skipped', 'No se envio alerta de desconexion por correo porque SMTP o correo admin no estan configurados.');
+        await addMovement('whatsapp.bridge_disconnect_email_skipped', 'No se envio alerta de desconexion por correo porque el canal no esta activo o SMTP/correo admin no estan configurados.');
     }
 }
 function startWhatsAppBridgeAlertMonitor() {
@@ -1134,7 +1144,11 @@ function startWhatsAppBridgeAlertMonitor() {
                 return;
             const elapsed = Date.now() - new Date(nonConnectedSince).getTime();
             const alreadySent = await getSettingValue('whatsapp_bridge_disconnect_alert_sent');
-            if (elapsed < whatsappDisconnectAlertGraceMs() || alreadySent === 'true')
+            const lastAlertAt = await getSettingValue('whatsapp_bridge_last_disconnect_alert_at');
+            const cooldownElapsed = lastAlertAt
+                ? Date.now() - new Date(lastAlertAt).getTime()
+                : Number.POSITIVE_INFINITY;
+            if (elapsed < whatsappDisconnectAlertGraceMs() || (alreadySent === 'true' && cooldownElapsed < whatsappDisconnectAlertCooldownMs()))
                 return;
             await notifyAdminWhatsAppBridgeDisconnected(status);
             await Promise.all([

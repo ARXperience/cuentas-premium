@@ -23,6 +23,7 @@ let lastConnectionActivityAt = Date.now();
 let lastConnectedAt: Date | null = null;
 let nextInitializationAt = 0;
 let socketGeneration = 0;
+let reconnectAttempts = 0;
 let activeAuth: Awaited<ReturnType<typeof createBaileysDatabaseAuthState>> | null = null;
 let runtimeEnabled = (() => {
   const value = process.env.WHATSAPP_BRIDGE_ENABLED?.trim().toLowerCase();
@@ -36,11 +37,49 @@ function isEnabled() {
 }
 
 function retryDelayMs() {
-  return Number(process.env.WHATSAPP_RECONNECT_DELAY_SECONDS || 10) * 1000;
+  const base = Number(process.env.WHATSAPP_RECONNECT_DELAY_SECONDS || 20) * 1000;
+  const max = Number(process.env.WHATSAPP_RECONNECT_MAX_DELAY_SECONDS || 300) * 1000;
+  const exponential = Math.min(base * (2 ** Math.min(reconnectAttempts, 5)), max);
+  return exponential + randomBetween(2_000, 12_000);
 }
 
 function staleConnectingMs() {
   return Number(process.env.WHATSAPP_STALE_CONNECTING_SECONDS || 120) * 1000;
+}
+
+function boundedNumber(value: string | undefined, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function randomBetween(min: number, max: number) {
+  if (max <= min) return min;
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function humanizedSendingEnabled() {
+  const value = process.env.WHATSAPP_HUMANIZE_SENDING?.trim().toLowerCase();
+  return value !== 'false' && value !== '0' && value !== 'off';
+}
+
+function humanizedInitialDelayMs(message: string) {
+  const min = boundedNumber(process.env.WHATSAPP_MIN_SEND_DELAY_SECONDS, 7, 0, 120) * 1000;
+  const max = boundedNumber(process.env.WHATSAPP_MAX_SEND_DELAY_SECONDS, 18, 0, 180) * 1000;
+  const lengthDelay = Math.min(message.length * 18, 8_000);
+  return randomBetween(Math.min(min, max), Math.max(min, max)) + lengthDelay;
+}
+
+function humanizedTypingDelayMs(message: string) {
+  const perCharacter = boundedNumber(process.env.WHATSAPP_TYPING_MS_PER_CHARACTER, 45, 5, 250);
+  const min = boundedNumber(process.env.WHATSAPP_MIN_TYPING_SECONDS, 5, 0, 120) * 1000;
+  const max = boundedNumber(process.env.WHATSAPP_MAX_TYPING_SECONDS, 28, 1, 240) * 1000;
+  const calculated = message.length * perCharacter + randomBetween(700, 2_500);
+  return Math.min(Math.max(calculated, min), max);
 }
 
 function sanitizeError(error: unknown) {
@@ -114,6 +153,7 @@ function resetStaleConnectingSocket(reason: string) {
   connection = 'disconnected';
   lastError = reason;
   nextInitializationAt = 0;
+  reconnectAttempts += 1;
   lastConnectionActivityAt = Date.now();
   endSocketQuietly(currentSocket, reason);
 }
@@ -198,6 +238,7 @@ export async function initializeWhatsAppClient(prisma: PrismaClient) {
         connectedNumber = normalizeOptionalNumber(currentSocket.user?.id);
         lastConnectedAt = new Date();
         nextInitializationAt = 0;
+        reconnectAttempts = 0;
         lastError = null;
         initStarted = false;
         return;
@@ -223,6 +264,7 @@ export async function initializeWhatsAppClient(prisma: PrismaClient) {
           statusCode === DisconnectReason.restartRequired
             ? null
             : `${sanitizeError(update.lastDisconnect?.error)}${statusCode ? ` (codigo ${statusCode})` : ''}`;
+        reconnectAttempts += 1;
         scheduleReconnect(statusCode);
       }
     });
@@ -256,6 +298,7 @@ export async function initializeWhatsAppClient(prisma: PrismaClient) {
     connectedNumber = null;
     qrCodeDataUrl = null;
     lastError = sanitizeError(error);
+    reconnectAttempts += 1;
     nextInitializationAt = Date.now() + retryDelayMs();
     lastConnectionActivityAt = Date.now();
   }
@@ -269,6 +312,16 @@ export async function sendWhatsAppMessage(recipient: string, message: string) {
   const matches = await socket.onWhatsApp(phone);
   const destination = matches?.find((match) => match.exists)?.jid;
   if (!destination) throw new Error('El numero no existe en WhatsApp o debe incluir codigo de pais.');
+
+  if (humanizedSendingEnabled()) {
+    await sleep(humanizedInitialDelayMs(message));
+    await socket.presenceSubscribe(destination).catch(() => undefined);
+    await socket.sendPresenceUpdate('composing', destination).catch(() => undefined);
+    await sleep(humanizedTypingDelayMs(message));
+    await socket.sendPresenceUpdate('paused', destination).catch(() => undefined);
+    await sleep(randomBetween(900, 2_800));
+  }
+
   await socket.sendMessage(destination, { text: message });
 }
 

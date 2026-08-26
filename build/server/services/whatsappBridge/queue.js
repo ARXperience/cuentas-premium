@@ -1,6 +1,7 @@
 import { getWhatsAppRuntimeStatus, sendWhatsAppMessage } from './baileysClient.js';
 let pendingOutboxHint = false;
 let nextOutboxSweepAt = 0;
+let processingOutbox = false;
 function maxAttempts() {
     return Number(process.env.WHATSAPP_MAX_ATTEMPTS || 3);
 }
@@ -12,6 +13,15 @@ function emailFallbackDelayMs() {
 }
 function idleSweepMs() {
     return Number(process.env.WHATSAPP_IDLE_SWEEP_SECONDS || (process.env.NODE_ENV === 'production' ? 300 : 30)) * 1000;
+}
+function batchSize() {
+    return Number(process.env.WHATSAPP_OUTBOX_BATCH_SIZE || (process.env.NODE_ENV === 'production' ? 1 : 3));
+}
+function betweenMessagesDelayMs() {
+    return Number(process.env.WHATSAPP_BETWEEN_MESSAGES_SECONDS || (process.env.NODE_ENV === 'production' ? 45 : 3)) * 1000;
+}
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 export function shouldPollWhatsAppOutbox() {
     if (pendingOutboxHint)
@@ -78,116 +88,129 @@ export async function getWhatsAppOutboxCounts(prisma) {
     return { pending, sent, failed, emailFallback };
 }
 export async function processWhatsAppOutbox(prisma, addMovement, onFinalFailure) {
-    const runtime = getWhatsAppRuntimeStatus();
-    const now = Date.now();
-    const items = await prisma.whatsAppOutbox.findMany({
-        where: { status: 'pending', attempts: { lt: maxAttempts() } },
-        orderBy: { created_at: 'asc' },
-        take: 5
-    });
-    if (!items.length) {
-        pendingOutboxHint = false;
+    if (processingOutbox)
         return;
-    }
-    for (const item of items) {
-        const isOrderNotification = Boolean(item.order_id && item.payout_id);
-        const fallbackExpired = now - item.created_at.getTime() >= emailFallbackDelayMs();
-        const fallbackRetryReady = item.attempts === 0
-            || now - item.updated_at.getTime() >= retryDelayMs();
-        if (isOrderNotification && fallbackExpired && fallbackRetryReady && onFinalFailure) {
-            const fallbackResult = await onFinalFailure({
-                id: item.id,
-                recipient: item.recipient,
-                message: item.message,
-                order_id: item.order_id,
-                payout_id: item.payout_id
-            });
-            if (fallbackResult === 'email' || fallbackResult === 'whatsapp') {
-                await prisma.whatsAppOutbox.update({
-                    where: { id: item.id },
-                    data: {
-                        status: fallbackResult === 'email' ? 'email_fallback' : 'sent',
-                        sent_at: fallbackResult === 'whatsapp' ? new Date() : null,
-                        last_error: fallbackResult === 'email'
-                            ? 'WhatsApp no se confirmo dentro del tiempo limite; respaldo enviado por correo.'
-                            : null
-                    }
-                });
-                if (fallbackResult === 'email') {
-                    await addMovement('whatsapp.email_fallback', `Aviso WhatsApp para pedido ${item.order_id} reemplazado por correo de respaldo.`, undefined, item.order_id || undefined);
-                }
-                continue;
-            }
-            if (fallbackResult === 'failed') {
-                const attempts = item.attempts + 1;
-                await prisma.whatsAppOutbox.update({
-                    where: { id: item.id },
-                    data: {
-                        attempts,
-                        status: attempts >= maxAttempts() ? 'failed' : 'pending',
-                        last_error: 'No fue posible enviar WhatsApp ni el correo de respaldo.'
-                    }
-                });
-                if (!runtime.enabled || runtime.connection !== 'connected')
-                    continue;
-            }
+    processingOutbox = true;
+    try {
+        const runtime = getWhatsAppRuntimeStatus();
+        const now = Date.now();
+        const items = await prisma.whatsAppOutbox.findMany({
+            where: { status: 'pending', attempts: { lt: maxAttempts() } },
+            orderBy: { created_at: 'asc' },
+            take: Math.max(1, Math.min(batchSize(), 5))
+        });
+        if (!items.length) {
+            pendingOutboxHint = false;
+            return;
         }
-        if (!runtime.enabled || runtime.connection !== 'connected')
-            continue;
-        if (item.attempts > 0 && now - item.updated_at.getTime() < retryDelayMs())
-            continue;
-        try {
-            await sendWhatsAppMessage(item.recipient, item.message);
-            await prisma.whatsAppOutbox.update({
-                where: { id: item.id },
-                data: { status: 'sent', sent_at: new Date(), last_error: null }
-            });
-            if (item.order_id) {
-                await prisma.order.update({
-                    where: { id: item.order_id },
-                    data: { admin_notified_at: new Date(), admin_notification_channel: 'whatsapp', whatsapp_sent: true }
-                }).catch(() => null);
-            }
-            await addMovement('whatsapp.sent', `WhatsApp Bridge envio comprobante para pedido ${item.order_id || '-'}.`, undefined, item.order_id || undefined);
-            if (item.order_id) {
-                await addMovement('provider_payout.receipt_sent', `Comprobante enviado por WhatsApp Bridge para pedido ${item.order_id}.`, undefined, item.order_id);
-            }
-        }
-        catch (error) {
-            const attempts = item.attempts + 1;
-            let finalStatus = attempts >= maxAttempts() ? 'failed' : 'pending';
-            let fallbackResult = null;
-            if (finalStatus === 'failed' && item.order_id && onFinalFailure) {
-                fallbackResult = await onFinalFailure({
+        for (let index = 0; index < items.length; index += 1) {
+            const item = items[index];
+            const isOrderNotification = Boolean(item.order_id && item.payout_id);
+            const fallbackExpired = now - item.created_at.getTime() >= emailFallbackDelayMs();
+            const fallbackRetryReady = item.attempts === 0
+                || now - item.updated_at.getTime() >= retryDelayMs();
+            if (isOrderNotification && fallbackExpired && fallbackRetryReady && onFinalFailure) {
+                const fallbackResult = await onFinalFailure({
                     id: item.id,
                     recipient: item.recipient,
                     message: item.message,
                     order_id: item.order_id,
                     payout_id: item.payout_id
                 });
-                if (fallbackResult === 'email')
-                    finalStatus = 'email_fallback';
-                if (fallbackResult === 'whatsapp')
-                    finalStatus = 'sent';
-            }
-            await prisma.whatsAppOutbox.update({
-                where: { id: item.id },
-                data: {
-                    attempts,
-                    status: finalStatus,
-                    sent_at: fallbackResult === 'whatsapp' ? new Date() : null,
-                    last_error: fallbackResult === 'email'
-                        ? 'WhatsApp fallo; respaldo enviado por correo.'
-                        : sanitizeError(error)
+                if (fallbackResult === 'email' || fallbackResult === 'whatsapp') {
+                    await prisma.whatsAppOutbox.update({
+                        where: { id: item.id },
+                        data: {
+                            status: fallbackResult === 'email' ? 'email_fallback' : 'sent',
+                            sent_at: fallbackResult === 'whatsapp' ? new Date() : null,
+                            last_error: fallbackResult === 'email'
+                                ? 'WhatsApp no se confirmo dentro del tiempo limite; respaldo enviado por correo.'
+                                : null
+                        }
+                    });
+                    if (fallbackResult === 'email') {
+                        await addMovement('whatsapp.email_fallback', `Aviso WhatsApp para pedido ${item.order_id} reemplazado por correo de respaldo.`, undefined, item.order_id || undefined);
+                    }
+                    continue;
                 }
-            });
-            await addMovement('whatsapp.failed', `WhatsApp Bridge no pudo enviar comprobante para pedido ${item.order_id || '-'}.`, undefined, item.order_id || undefined);
-            if (finalStatus === 'failed' && item.order_id) {
-                await addMovement('provider_payout.receipt_failed', `Comprobante WhatsApp agoto intentos para pedido ${item.order_id}.`, undefined, item.order_id);
+                if (fallbackResult === 'failed') {
+                    const attempts = item.attempts + 1;
+                    await prisma.whatsAppOutbox.update({
+                        where: { id: item.id },
+                        data: {
+                            attempts,
+                            status: attempts >= maxAttempts() ? 'failed' : 'pending',
+                            last_error: 'No fue posible enviar WhatsApp ni el correo de respaldo.'
+                        }
+                    });
+                    if (!runtime.enabled || runtime.connection !== 'connected')
+                        continue;
+                }
             }
-            if (finalStatus === 'email_fallback' && item.order_id) {
-                await addMovement('whatsapp.email_fallback', `WhatsApp fallo para pedido ${item.order_id}; correo de respaldo enviado.`, undefined, item.order_id);
+            if (!runtime.enabled || runtime.connection !== 'connected')
+                continue;
+            if (item.attempts > 0 && now - item.updated_at.getTime() < retryDelayMs())
+                continue;
+            try {
+                await sendWhatsAppMessage(item.recipient, item.message);
+                await prisma.whatsAppOutbox.update({
+                    where: { id: item.id },
+                    data: { status: 'sent', sent_at: new Date(), last_error: null }
+                });
+                if (item.order_id) {
+                    await prisma.order.update({
+                        where: { id: item.order_id },
+                        data: { admin_notified_at: new Date(), admin_notification_channel: 'whatsapp', whatsapp_sent: true }
+                    }).catch(() => null);
+                }
+                await addMovement('whatsapp.sent', `WhatsApp Bridge envio comprobante para pedido ${item.order_id || '-'}.`, undefined, item.order_id || undefined);
+                if (item.order_id) {
+                    await addMovement('provider_payout.receipt_sent', `Comprobante enviado por WhatsApp Bridge para pedido ${item.order_id}.`, undefined, item.order_id);
+                }
+                if (index < items.length - 1)
+                    await sleep(betweenMessagesDelayMs());
+            }
+            catch (error) {
+                const attempts = item.attempts + 1;
+                let finalStatus = attempts >= maxAttempts() ? 'failed' : 'pending';
+                let fallbackResult = null;
+                if (finalStatus === 'failed' && item.order_id && onFinalFailure) {
+                    fallbackResult = await onFinalFailure({
+                        id: item.id,
+                        recipient: item.recipient,
+                        message: item.message,
+                        order_id: item.order_id,
+                        payout_id: item.payout_id
+                    });
+                    if (fallbackResult === 'email')
+                        finalStatus = 'email_fallback';
+                    if (fallbackResult === 'whatsapp')
+                        finalStatus = 'sent';
+                }
+                await prisma.whatsAppOutbox.update({
+                    where: { id: item.id },
+                    data: {
+                        attempts,
+                        status: finalStatus,
+                        sent_at: fallbackResult === 'whatsapp' ? new Date() : null,
+                        last_error: fallbackResult === 'email'
+                            ? 'WhatsApp fallo; respaldo enviado por correo.'
+                            : sanitizeError(error)
+                    }
+                });
+                await addMovement('whatsapp.failed', `WhatsApp Bridge no pudo enviar comprobante para pedido ${item.order_id || '-'}.`, undefined, item.order_id || undefined);
+                if (finalStatus === 'failed' && item.order_id) {
+                    await addMovement('provider_payout.receipt_failed', `Comprobante WhatsApp agoto intentos para pedido ${item.order_id}.`, undefined, item.order_id);
+                }
+                if (finalStatus === 'email_fallback' && item.order_id) {
+                    await addMovement('whatsapp.email_fallback', `WhatsApp fallo para pedido ${item.order_id}; correo de respaldo enviado.`, undefined, item.order_id);
+                }
+                if (index < items.length - 1)
+                    await sleep(betweenMessagesDelayMs());
             }
         }
+    }
+    finally {
+        processingOutbox = false;
     }
 }

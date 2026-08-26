@@ -257,9 +257,10 @@ Funcionamiento:
 - La sesion y las claves de cifrado de WhatsApp se guardan cifradas en PostgreSQL usando `APP_ENCRYPTION_KEY`.
 - Al crear un pedido, el backend crea un `WhatsAppOutbox` para avisar al admin.
 - El worker envia el mensaje automaticamente si la sesion esta conectada.
-- El bridge intenta reconectarse mientras el proceso Node.js siga vivo. La vinculacion suele mantenerse 24/7, pero WhatsApp puede cerrar la sesion, el servidor puede reiniciarse o la red puede fallar.
+- El bridge intenta reconectarse mientras el proceso Node.js siga vivo. La vinculacion suele mantenerse activa, pero WhatsApp puede cerrar la sesion, el servidor puede reiniciarse o la red puede fallar.
 - En produccion el worker evita consultar la base cada pocos segundos cuando no hay mensajes pendientes. `WHATSAPP_WORKER_INTERVAL_SECONDS` controla el intervalo activo y `WHATSAPP_IDLE_SWEEP_SECONDS` el barrido cuando la cola esta vacia; esto ayuda a no agotar la cuota de Neon.
-- Si el bridge deja de estar conectado durante mas de `WHATSAPP_DISCONNECT_ALERT_GRACE_SECONDS`, el sistema envia una alerta al correo del admin y deja un WhatsApp en cola para el numero de avisos del admin.
+- Si el bridge deja de estar conectado durante mas de `WHATSAPP_DISCONNECT_ALERT_GRACE_SECONDS`, el sistema alerta solo por los canales definidos en `WHATSAPP_DISCONNECT_ALERT_CHANNELS` y respeta `WHATSAPP_DISCONNECT_ALERT_COOLDOWN_SECONDS` para no repetir avisos.
+- Los mensajes de WhatsApp se envian en lotes pequenos y con espera, presencia de escritura y pausa antes de enviar. Esto reduce el aspecto automatico, aunque ninguna integracion no oficial puede garantizar que WhatsApp no limite una cuenta.
 - Si WhatsApp falla, el pedido no falla; queda en el panel admin.
 
 El bridge no debe enviar credenciales al cliente. Las credenciales solo se ven dentro del panel privado del cliente y, si hace falta, en la revision admin de borradores.
@@ -412,8 +413,19 @@ WHATSAPP_BRIDGE_AUTOSTART="true"
 WHATSAPP_BRIDGE_MODE="baileys"
 WHATSAPP_WORKER_INTERVAL_SECONDS="30"
 WHATSAPP_IDLE_SWEEP_SECONDS="300"
-WHATSAPP_RECONNECT_DELAY_SECONDS="10"
-WHATSAPP_DISCONNECT_ALERT_GRACE_SECONDS="45"
+WHATSAPP_RECONNECT_DELAY_SECONDS="20"
+WHATSAPP_RECONNECT_MAX_DELAY_SECONDS="300"
+WHATSAPP_OUTBOX_BATCH_SIZE="1"
+WHATSAPP_BETWEEN_MESSAGES_SECONDS="45"
+WHATSAPP_HUMANIZE_SENDING="true"
+WHATSAPP_MIN_SEND_DELAY_SECONDS="7"
+WHATSAPP_MAX_SEND_DELAY_SECONDS="18"
+WHATSAPP_TYPING_MS_PER_CHARACTER="45"
+WHATSAPP_MIN_TYPING_SECONDS="5"
+WHATSAPP_MAX_TYPING_SECONDS="28"
+WHATSAPP_DISCONNECT_ALERT_CHANNELS="email"
+WHATSAPP_DISCONNECT_ALERT_GRACE_SECONDS="900"
+WHATSAPP_DISCONNECT_ALERT_COOLDOWN_SECONDS="21600"
 WHATSAPP_DISCONNECT_MONITOR_SECONDS="300"
 WHATSAPP_BAILEYS_LOG_LEVEL="silent"
 WHATSAPP_INBOUND_ENABLED="false"

@@ -410,6 +410,237 @@ async function createRoleNotifications(role: Role, order_id: string | null, type
   });
 }
 
+function bogotaDateParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
+  return { year: value('year'), month: value('month'), day: value('day') };
+}
+
+function periodForBogotaDate(date = new Date()) {
+  const { year, month } = bogotaDateParts(date);
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+function lastDayOfMonth(year: number, month: number) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function billingScheduleForPeriod(period: string) {
+  const [yearRaw, monthRaw] = period.split('-').map(Number);
+  const year = yearRaw || new Date().getFullYear();
+  const month = monthRaw || new Date().getMonth() + 1;
+  const dueDay = Math.min(30, lastDayOfMonth(year, month));
+  const dueDate = new Date(Date.UTC(year, month - 1, dueDay, 17, 0, 0));
+  const issueDate = new Date(dueDate.getTime() - 2 * 24 * 60 * 60 * 1000);
+  return { issueDate, dueDate };
+}
+
+function periodBounds(period: string) {
+  const [year, month] = period.split('-').map(Number);
+  return {
+    start: new Date(Date.UTC(year, month - 1, 1, 5, 0, 0)),
+    end: new Date(Date.UTC(year, month, 1, 5, 0, 0))
+  };
+}
+
+function invoiceNumber(period: string, user: { name: string }) {
+  const clientKey = user.name.replace(/[^a-z0-9]+/gi, '').slice(0, 8).toUpperCase() || 'CLIENTE';
+  return `FAC-${period.replace('-', '')}-${clientKey}`;
+}
+
+function lineUnitValue(item: any) {
+  return item.unit_price || (item.subtotal && item.quantity ? Math.round(item.subtotal / Math.max(1, item.quantity)) : 0);
+}
+
+function parseMaybeDate(value?: string | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+async function serializeInvoice(invoice: any) {
+  return {
+    id: invoice.id,
+    invoice_number: invoice.invoice_number,
+    user_id: invoice.user_id,
+    period: invoice.period,
+    title: invoice.title,
+    status: invoice.status,
+    currency: invoice.currency,
+    issue_date: invoice.issue_date,
+    due_date: invoice.due_date,
+    total_amount: invoice.total_amount,
+    notes: invoice.notes,
+    auto_generated: invoice.auto_generated,
+    admin_notified_at: invoice.admin_notified_at,
+    created_at: invoice.created_at,
+    updated_at: invoice.updated_at,
+    user: safeUser(invoice.user, true),
+    lines: (invoice.lines || []).map((line: any) => ({
+      id: line.id,
+      invoice_id: line.invoice_id,
+      order_id: line.order_id,
+      delivered_account_id: line.delivered_account_id,
+      description: line.description,
+      account_email: line.account_email,
+      profile_name: line.profile_name,
+      pin: line.pin,
+      quantity: line.quantity,
+      unit_price: line.unit_price,
+      total: line.total,
+      ordered_at: line.ordered_at,
+      delivered_at: line.delivered_at,
+      notes: line.notes,
+      position: line.position,
+      order: line.order ? { id: line.order.id, order_number: line.order.order_number } : null
+    }))
+  };
+}
+
+async function findServimilBillingUser() {
+  return prisma.user.findFirst({
+    where: {
+      role: 'client',
+      OR: [
+        { access_code: process.env.SERVIMIL_ACCESS_CODE || '1111' },
+        { name: { contains: 'Servimil', mode: 'insensitive' } },
+        { email: 'cliente@centrodigital.local' }
+      ]
+    },
+    orderBy: { created_at: 'asc' }
+  });
+}
+
+async function notifyAdminInvoiceCreated(invoice: any) {
+  if (invoice.admin_notified_at) return;
+  await createRoleNotifications(
+    'admin',
+    null,
+    'invoice.generated',
+    'Factura mensual creada',
+    `Factura ${invoice.invoice_number} creada para ${invoice.user.name}. Total: ${money(invoice.total_amount)}.`
+  );
+  await prisma.clientInvoice.update({
+    where: { id: invoice.id },
+    data: { admin_notified_at: new Date() }
+  });
+}
+
+async function generateClientInvoice(user: any, period = periodForBogotaDate(), actorId?: string, notifyAdmin = true) {
+  const { issueDate, dueDate } = billingScheduleForPeriod(period);
+  const { start, end } = periodBounds(period);
+  const existing = await prisma.clientInvoice.findUnique({
+    where: { user_id_period: { user_id: user.id, period } },
+    include: { user: true, lines: true }
+  });
+  const billedDeliveryIds = new Set((existing?.lines || []).map((line: any) => line.delivered_account_id).filter(Boolean));
+  const deliveries = await prisma.deliveredAccount.findMany({
+    where: {
+      delivered_at: { gte: start, lt: end },
+      order: { user_id: user.id, deleted_at: null }
+    },
+    include: { order: true, orderItem: true },
+    orderBy: { delivered_at: 'asc' }
+  });
+  const newLines = deliveries
+    .filter((delivery) => !billedDeliveryIds.has(delivery.id))
+    .map((delivery, index) => {
+      const unitPrice = lineUnitValue(delivery.orderItem);
+      return {
+        order_id: delivery.order_id,
+        delivered_account_id: delivery.id,
+        description: delivery.orderItem.product_name,
+        account_email: delivery.delivered_email,
+        account_password: null,
+        profile_name: delivery.profile_name,
+        pin: delivery.pin,
+        quantity: 1,
+        unit_price: unitPrice,
+        total: unitPrice,
+        ordered_at: delivery.order.created_at,
+        delivered_at: delivery.delivered_at,
+        notes: delivery.notes,
+        position: (existing?.lines.length || 0) + index
+      };
+    });
+
+  const invoice = await prisma.$transaction(async (tx) => {
+    const saved = existing
+      ? await tx.clientInvoice.update({
+          where: { id: existing.id },
+          data: {
+            title: existing.title || `Factura mensual ${user.name} ${period}`,
+            issue_date: existing.issue_date || issueDate,
+            due_date: existing.due_date || dueDate,
+            ...(newLines.length ? { lines: { create: newLines } } : {})
+          },
+          include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } }
+        })
+      : await tx.clientInvoice.create({
+          data: {
+            invoice_number: invoiceNumber(period, user),
+            user_id: user.id,
+            period,
+            title: `Factura mensual ${user.name} ${period}`,
+            status: 'draft',
+            issue_date: issueDate,
+            due_date: dueDate,
+            notes: 'Factura generada automaticamente con las cuentas entregadas del periodo.',
+            auto_generated: true,
+            created_by: actorId || null,
+            lines: { create: newLines }
+          },
+          include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } }
+        });
+    const totalAmount = saved.lines.reduce((sum: number, line: any) => sum + line.total, 0);
+    return tx.clientInvoice.update({
+      where: { id: saved.id },
+      data: { total_amount: totalAmount },
+      include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } }
+    });
+  });
+
+  await addMovement(
+    existing ? 'invoice.synced' : 'invoice.generated',
+    `${existing ? 'Factura actualizada' : 'Factura generada'} para ${user.name}, periodo ${period}, total ${money(invoice.total_amount)}.`,
+    actorId,
+    undefined
+  );
+  if (notifyAdmin && !existing) await notifyAdminInvoiceCreated(invoice);
+  return invoice;
+}
+
+async function ensureServimilMonthlyInvoice(now = new Date()) {
+  const period = periodForBogotaDate(now);
+  const { issueDate } = billingScheduleForPeriod(period);
+  if (now < issueDate) return null;
+  const user = await findServimilBillingUser();
+  if (!user) return null;
+  return generateClientInvoice(user, period, undefined, true);
+}
+
+function startMonthlyInvoiceScheduler() {
+  let running = false;
+  const run = () => {
+    if (running) return;
+    running = true;
+    void ensureServimilMonthlyInvoice()
+      .catch((error: unknown) => {
+        console.error('[billing:auto-invoice]', error instanceof Error ? error.message : error);
+      })
+      .finally(() => {
+        running = false;
+      });
+  };
+  run();
+  setInterval(run, Number(process.env.BILLING_SCHEDULER_INTERVAL_MINUTES || 360) * 60 * 1000);
+}
+
 function normalizePhone(value: string) {
   return value.replace(/[^\d]/g, '');
 }
@@ -1767,6 +1998,123 @@ app.get('/api/admin/users', requireAuth, requireRole('admin'), async (_req, res,
   }
 });
 
+app.get('/api/admin/invoices', requireAuth, requireRole('admin'), async (_req, res, next) => {
+  try {
+    await ensureServimilMonthlyInvoice();
+    const invoices = await prisma.clientInvoice.findMany({
+      include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } },
+      orderBy: [{ period: 'desc' }, { created_at: 'desc' }],
+      take: 24
+    });
+    res.json({ invoices: await Promise.all(invoices.map(serializeInvoice)) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/invoices/servimil/generate', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
+  try {
+    const input = z.object({ period: z.string().regex(/^\d{4}-\d{2}$/).optional() }).parse(req.body || {});
+    const user = await findServimilBillingUser();
+    if (!user) return res.status(404).json({ message: 'No se encontro el cliente Servimil con codigo 1111.' });
+    const invoice = await generateClientInvoice(user, input.period || periodForBogotaDate(), req.user!.id, true);
+    res.status(201).json({ invoice: await serializeInvoice(invoice), message: 'Factura de Servimil generada o sincronizada.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const invoiceLineInputSchema = z.object({
+  id: z.string().optional(),
+  description: z.string().trim().min(1),
+  account_email: z.string().trim().optional().nullable(),
+  profile_name: z.string().trim().optional().nullable(),
+  pin: z.string().trim().optional().nullable(),
+  quantity: z.number().int().min(1).max(999),
+  unit_price: z.number().int().min(0),
+  total: z.number().int().min(0).optional(),
+  ordered_at: z.string().optional().nullable(),
+  delivered_at: z.string().optional().nullable(),
+  notes: z.string().trim().optional().nullable(),
+  position: z.number().int().min(0).optional()
+});
+
+const invoiceUpdateSchema = z.object({
+  title: z.string().trim().min(3).optional(),
+  status: z.enum(['draft', 'sent', 'paid', 'cancelled']).optional(),
+  issue_date: z.string().optional(),
+  due_date: z.string().optional(),
+  notes: z.string().trim().optional().nullable(),
+  lines: z.array(invoiceLineInputSchema).optional(),
+  deleted_line_ids: z.array(z.string()).optional()
+});
+
+app.patch('/api/admin/invoices/:id', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
+  try {
+    const input = invoiceUpdateSchema.parse(req.body);
+    const invoice = await prisma.clientInvoice.findUniqueOrThrow({
+      where: { id: paramId(req.params.id) },
+      include: { lines: true }
+    });
+    const lineIds = new Set(invoice.lines.map((line) => line.id));
+    const saved = await prisma.$transaction(async (tx) => {
+      if (input.deleted_line_ids?.length) {
+        await tx.clientInvoiceLine.deleteMany({
+          where: { invoice_id: invoice.id, id: { in: input.deleted_line_ids } }
+        });
+      }
+      for (const [index, line] of (input.lines || []).entries()) {
+        const quantity = line.quantity;
+        const total = line.total ?? quantity * line.unit_price;
+        const data = {
+          description: line.description,
+          account_email: line.account_email || null,
+          profile_name: line.profile_name || null,
+          pin: line.pin || null,
+          quantity,
+          unit_price: line.unit_price,
+          total,
+          ordered_at: parseMaybeDate(line.ordered_at),
+          delivered_at: parseMaybeDate(line.delivered_at),
+          notes: line.notes || null,
+          position: line.position ?? index
+        };
+        if (line.id && lineIds.has(line.id)) {
+          await tx.clientInvoiceLine.update({
+            where: { id: line.id },
+            data
+          });
+        } else if (!line.id) {
+          await tx.clientInvoiceLine.create({
+            data: {
+              invoice_id: invoice.id,
+              ...data
+            }
+          });
+        }
+      }
+      const lines = await tx.clientInvoiceLine.findMany({ where: { invoice_id: invoice.id } });
+      const totalAmount = lines.reduce((sum, line) => sum + line.total, 0);
+      return tx.clientInvoice.update({
+        where: { id: invoice.id },
+        data: {
+          title: input.title ?? invoice.title,
+          status: input.status ?? invoice.status,
+          issue_date: parseMaybeDate(input.issue_date) || invoice.issue_date,
+          due_date: parseMaybeDate(input.due_date) || invoice.due_date,
+          notes: input.notes ?? invoice.notes,
+          total_amount: totalAmount
+        },
+        include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } }
+      });
+    });
+    await addMovement('invoice.updated', `Factura ${saved.invoice_number} actualizada. Total ${money(saved.total_amount)}.`, req.user!.id);
+    res.json({ invoice: await serializeInvoice(saved), message: 'Factura actualizada.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/admin/orders/pending-delivery', requireAuth, requireRole('admin'), async (req, res, next) => {
   try {
     const orders = await prisma.order.findMany({
@@ -2645,6 +2993,7 @@ app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
 app.listen(port, '0.0.0.0', () => {
   console.log(`API lista en http://localhost:${port}`);
   startWhatsAppBridgeAlertMonitor();
+  startMonthlyInvoiceScheduler();
   void (async () => {
     const adminEnabled = await getSettingValue('whatsapp_bridge_admin_enabled');
     const autostartFlag = process.env.WHATSAPP_BRIDGE_AUTOSTART?.trim().toLowerCase();

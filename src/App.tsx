@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { CartItem, Dashboard, DeliveredAccount, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
+import type { CartItem, ClientInvoice, Dashboard, DeliveredAccount, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
 import centroDigitalLogo from "./assets/centro-digital-imagotipo.png";
 import servimilLogo from "./assets/clients/servimil.png";
 import netflixLogo from "./assets/brands/netflix.svg";
@@ -26,6 +26,14 @@ function formatDateTime(value?: string | null) {
     timeStyle: "short",
     timeZone: "America/Bogota"
   }).format(new Date(value));
+}
+
+function dateTimeInputValue(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60 * 1000).toISOString().slice(0, 16);
 }
 
 function orderLabel(order?: Pick<Order, "id" | "order_number"> | null) {
@@ -153,6 +161,7 @@ function App() {
   const [trashedOrders, setTrashedOrders] = useState<Order[]>([]);
   const [providerDeliveries, setProviderDeliveries] = useState<ProviderDelivery[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [clientInvoices, setClientInvoices] = useState<ClientInvoice[]>([]);
   const [deliveryDrafts, setDeliveryDrafts] = useState<DeliveryDraft[]>([]);
   const [whatsappInboundMessages, setWhatsappInboundMessages] = useState<WhatsAppInboundMessage[]>([]);
   const [adminLogs, setAdminLogs] = useState<SystemLog[]>([]);
@@ -264,6 +273,12 @@ function App() {
     setUsers(data.users);
   }
 
+  async function loadClientInvoices() {
+    if (user?.role !== "admin") return;
+    const data = await request<{ invoices: ClientInvoice[] }>("/api/admin/invoices");
+    setClientInvoices(data.invoices || []);
+  }
+
   async function loadProviderConfig() {
     const data = await request<{ config: ProviderConfig }>("/api/admin/provider-config");
     setProviderConfig(data.config);
@@ -350,7 +365,7 @@ function App() {
   }
 
   async function refreshAdminData() {
-    await Promise.all([loadDashboard(), loadOrders(), loadUsers(), loadProducts(), loadProviderConfig(), loadPendingPayouts(), loadPendingDeliveryOrders(), loadTrashedOrders(), loadWhatsAppStatus(), loadEmailStatus(), loadDeliveryDrafts(), loadWhatsAppInbound(), loadAdminLogs(), loadNotifications(), loadUnreadNotifications()]);
+    await Promise.all([loadDashboard(), loadOrders(), loadUsers(), loadProducts(), loadClientInvoices(), loadProviderConfig(), loadPendingPayouts(), loadPendingDeliveryOrders(), loadTrashedOrders(), loadWhatsAppStatus(), loadEmailStatus(), loadDeliveryDrafts(), loadWhatsAppInbound(), loadAdminLogs(), loadNotifications(), loadUnreadNotifications()]);
   }
 
   function addToCart(product: Product) {
@@ -434,6 +449,7 @@ function App() {
     setUser(null);
     setOrders([]);
     setDashboard(null);
+    setClientInvoices([]);
     setCart([]);
     setAddedDetailOpen(false);
     setSelectedAddedProduct(null);
@@ -535,6 +551,58 @@ function App() {
       })
     });
     setNotice("Cuenta entregada actualizada. El cliente vera la contrasena real al abrir el pedido.");
+    await refreshAdminData();
+  }
+
+  async function generateServimilInvoice(period?: string) {
+    try {
+      const data = await request<{ invoice: ClientInvoice; message: string }>("/api/admin/invoices/servimil/generate", {
+        method: "POST",
+        body: JSON.stringify({ period: period || undefined })
+      });
+      setClientInvoices((current) => {
+        const exists = current.some((invoice) => invoice.id === data.invoice.id);
+        return exists
+          ? current.map((invoice) => invoice.id === data.invoice.id ? data.invoice : invoice)
+          : [data.invoice, ...current];
+      });
+      setNotice(data.message || "Factura de Servimil lista.");
+      await refreshAdminData();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "No se pudo generar la factura.");
+    }
+  }
+
+  async function saveClientInvoice(invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const lines = invoice.lines.map((line, index) => ({
+      id: line.id,
+      description: String(form.get(`line_${line.id}_description`) || ""),
+      account_email: String(form.get(`line_${line.id}_account_email`) || ""),
+      profile_name: String(form.get(`line_${line.id}_profile_name`) || ""),
+      pin: String(form.get(`line_${line.id}_pin`) || ""),
+      quantity: Number(form.get(`line_${line.id}_quantity`) || 1),
+      unit_price: Number(form.get(`line_${line.id}_unit_price`) || 0),
+      total: Number(form.get(`line_${line.id}_total`) || 0),
+      ordered_at: String(form.get(`line_${line.id}_ordered_at`) || ""),
+      delivered_at: String(form.get(`line_${line.id}_delivered_at`) || ""),
+      notes: String(form.get(`line_${line.id}_notes`) || ""),
+      position: index
+    }));
+    const data = await request<{ invoice: ClientInvoice; message: string }>(`/api/admin/invoices/${invoice.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        title: form.get("title"),
+        status: form.get("status"),
+        issue_date: form.get("issue_date"),
+        due_date: form.get("due_date"),
+        notes: form.get("notes"),
+        lines
+      })
+    });
+    setClientInvoices((current) => current.map((item) => item.id === data.invoice.id ? data.invoice : item));
+    setNotice(data.message || "Factura actualizada.");
     await refreshAdminData();
   }
 
@@ -818,7 +886,7 @@ function App() {
       {view === "cart" && user?.role === "client" && <CartPage cart={cart} total={cartTotal} changeQuantity={changeQuantity} removeFromCart={removeFromCart} checkout={checkout} busy={busy} onContinueShopping={() => setView("catalog")} />}
       {view === "client" && user?.role === "client" && <ClientPanel user={user} orders={orders} notifications={notifications} unreadNotifications={unreadNotifications} markNotificationRead={markNotificationRead} cancelOrder={cancelClientOrder} copy={copy} goToCatalog={() => setView("catalog")} />}
       {view === "provider" && user?.role === "provider" && <ProviderPanel orders={orders} deliveries={providerDeliveries} deliver={deliver} busy={busy} />}
-      {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} trashedOrders={trashedOrders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} notifications={notifications} unreadNotifications={unreadNotifications} adminLogs={adminLogs} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} cancelPayout={cancelPayout} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} saveDeliveredAccountEdit={saveDeliveredAccountEdit} markNotificationRead={markNotificationRead} deleteOrder={deleteAdminOrder} copy={copy} />}
+      {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} trashedOrders={trashedOrders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} invoices={clientInvoices} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} notifications={notifications} unreadNotifications={unreadNotifications} adminLogs={adminLogs} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} cancelPayout={cancelPayout} generateServimilInvoice={generateServimilInvoice} saveClientInvoice={saveClientInvoice} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} saveDeliveredAccountEdit={saveDeliveredAccountEdit} markNotificationRead={markNotificationRead} deleteOrder={deleteAdminOrder} copy={copy} />}
 
       <AddedProductModal
         product={selectedAddedProduct}
@@ -1587,6 +1655,11 @@ function ProviderPanel({ orders, deliveries, deliver, busy }: {
   );
 }
 
+function currentInvoicePeriod() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+}
+
 function OrderWorkCard({ order, deliver, busy }: {
   order: Order;
   deliver: (orderId: string, item: OrderItem, event: FormEvent<HTMLFormElement>) => void;
@@ -1626,7 +1699,151 @@ function OrderWorkCard({ order, deliver, busy }: {
   );
 }
 
-function AdminPanel({ dashboard, users, products, orders, trashedOrders, pendingDeliveryOrders, pendingPayouts, providerConfig, whatsappStatus, whatsappQr, emailStatus, notifications, unreadNotifications, adminLogs, savingProductId, saveProduct, saveProviderConfig, saveAdminNotificationConfig, saveEmailConfig, testAdminEmail, connectWhatsApp, retryWhatsAppFailed, disconnectWhatsApp, testAdminWhatsApp, markReceiptSent, cancelPayout, previewDeliveryMessage, approveParsedDelivery, saveDeliveryDraft, updateStatus, saveOrderEdit, saveDeliveredAccountEdit, markNotificationRead, deleteOrder, copy }: {
+function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, saveClientInvoice }: {
+  invoices: ClientInvoice[];
+  servimilUser?: User;
+  generateServimilInvoice: (period?: string) => void;
+  saveClientInvoice: (invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const [period, setPeriod] = useState(currentInvoicePeriod());
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(invoices[0]?.id || null);
+  const selectedInvoice = invoices.find((invoice) => invoice.id === selectedInvoiceId) || invoices[0] || null;
+  const totalPending = invoices.filter((invoice) => invoice.status !== "paid" && invoice.status !== "cancelled").reduce((sum, invoice) => sum + invoice.total_amount, 0);
+
+  useEffect(() => {
+    if (!selectedInvoiceId && invoices[0]) setSelectedInvoiceId(invoices[0].id);
+  }, [invoices, selectedInvoiceId]);
+
+  return (
+    <section className="glass-panel admin-module-panel billing-panel">
+      <div className="billing-hero">
+        <div className="servimil-admin-head billing-client-head">
+          <img src={servimilLogo} alt="Servimil" />
+          <div>
+            <span className="eyebrow">Facturacion mensual</span>
+            <strong>{servimilUser?.name || "Servimil"}</strong>
+            <span>Cliente codigo 1111 - se emite 2 dias antes y vence el dia 30.</span>
+          </div>
+        </div>
+        <div className="billing-generate-box">
+          <label>
+            Periodo
+            <input type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
+          </label>
+          <button className="btn-solid" type="button" onClick={() => generateServimilInvoice(period)}>Generar / sincronizar factura</button>
+        </div>
+      </div>
+
+      <div className="dashboard-grid mini-metrics">
+        <Metric label="Facturas" value={invoices.length} />
+        <Metric label="Pendiente de cobro" value={money.format(totalPending)} />
+        <Metric label="Ultima factura" value={selectedInvoice?.invoice_number || "-"} />
+      </div>
+
+      <div className="billing-layout">
+        <aside className="invoice-list">
+          {invoices.length === 0 && <p className="empty">Aun no hay facturas generadas. Crea la primera para Servimil.</p>}
+          {invoices.map((invoice) => (
+            <button
+              key={invoice.id}
+              className={selectedInvoice?.id === invoice.id ? "invoice-list-item active" : "invoice-list-item"}
+              type="button"
+              onClick={() => setSelectedInvoiceId(invoice.id)}
+            >
+              <strong>{invoice.invoice_number}</strong>
+              <span>{invoice.period} - {invoice.status}</span>
+              <em>{money.format(invoice.total_amount)}</em>
+            </button>
+          ))}
+        </aside>
+
+        {selectedInvoice && (
+          <form className="invoice-editor" onSubmit={(event) => saveClientInvoice(selectedInvoice, event)}>
+            <div className="invoice-editor-head">
+              <label>
+                Titulo
+                <input name="title" defaultValue={selectedInvoice.title} />
+              </label>
+              <label>
+                Estado
+                <select name="status" defaultValue={selectedInvoice.status}>
+                  <option value="draft">Borrador</option>
+                  <option value="sent">Enviada</option>
+                  <option value="paid">Pagada</option>
+                  <option value="cancelled">Cancelada</option>
+                </select>
+              </label>
+              <label>
+                Emision
+                <input name="issue_date" type="datetime-local" defaultValue={dateTimeInputValue(selectedInvoice.issue_date)} />
+              </label>
+              <label>
+                Vencimiento
+                <input name="due_date" type="datetime-local" defaultValue={dateTimeInputValue(selectedInvoice.due_date)} />
+              </label>
+              <label className="invoice-notes-field">
+                Notas
+                <textarea name="notes" defaultValue={selectedInvoice.notes || ""} />
+              </label>
+            </div>
+
+            <div className="invoice-total-strip">
+              <span>Total factura</span>
+              <strong>{money.format(selectedInvoice.total_amount)}</strong>
+              <small>Las lineas se pueden editar antes de guardar.</small>
+            </div>
+
+            <div className="table-scroll invoice-lines-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Orden</th>
+                    <th>Servicio</th>
+                    <th>Correo</th>
+                    <th>Perfil</th>
+                    <th>PIN</th>
+                    <th>Fecha pedido</th>
+                    <th>Fecha entrega</th>
+                    <th>Cant.</th>
+                    <th>Valor</th>
+                    <th>Total</th>
+                    <th>Notas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedInvoice.lines.map((line) => (
+                    <tr key={line.id}>
+                      <td>{orderLabel(line.order)}</td>
+                      <td><input name={`line_${line.id}_description`} defaultValue={line.description} /></td>
+                      <td><input name={`line_${line.id}_account_email`} defaultValue={line.account_email || ""} /></td>
+                      <td><input name={`line_${line.id}_profile_name`} defaultValue={line.profile_name || ""} /></td>
+                      <td><input name={`line_${line.id}_pin`} defaultValue={line.pin || ""} /></td>
+                      <td><input name={`line_${line.id}_ordered_at`} type="datetime-local" defaultValue={dateTimeInputValue(line.ordered_at)} /></td>
+                      <td><input name={`line_${line.id}_delivered_at`} type="datetime-local" defaultValue={dateTimeInputValue(line.delivered_at)} /></td>
+                      <td><input name={`line_${line.id}_quantity`} type="number" min="1" defaultValue={line.quantity} /></td>
+                      <td><input name={`line_${line.id}_unit_price`} type="number" min="0" defaultValue={line.unit_price} /></td>
+                      <td><input name={`line_${line.id}_total`} type="number" min="0" defaultValue={line.total} /></td>
+                      <td><input name={`line_${line.id}_notes`} defaultValue={line.notes || ""} /></td>
+                    </tr>
+                  ))}
+                  {selectedInvoice.lines.length === 0 && (
+                    <tr><td colSpan={11}>No hay cuentas entregadas para este periodo.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="status-actions invoice-actions">
+              <button className="btn-solid">Guardar factura</button>
+              <button type="button" onClick={() => generateServimilInvoice(selectedInvoice.period)}>Actualizar con cuentas nuevas</button>
+            </div>
+          </form>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AdminPanel({ dashboard, users, products, orders, trashedOrders, pendingDeliveryOrders, pendingPayouts, invoices, providerConfig, whatsappStatus, whatsappQr, emailStatus, notifications, unreadNotifications, adminLogs, savingProductId, saveProduct, saveProviderConfig, saveAdminNotificationConfig, saveEmailConfig, testAdminEmail, connectWhatsApp, retryWhatsAppFailed, disconnectWhatsApp, testAdminWhatsApp, markReceiptSent, cancelPayout, generateServimilInvoice, saveClientInvoice, previewDeliveryMessage, approveParsedDelivery, saveDeliveryDraft, updateStatus, saveOrderEdit, saveDeliveredAccountEdit, markNotificationRead, deleteOrder, copy }: {
   dashboard: Dashboard | null;
   users: User[];
   products: Product[];
@@ -1634,6 +1851,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   trashedOrders: Order[];
   pendingDeliveryOrders: Order[];
   pendingPayouts: ProviderPayout[];
+  invoices: ClientInvoice[];
   providerConfig: ProviderConfig | null;
   whatsappStatus: WhatsAppBridgeStatus | null;
   whatsappQr: string | null;
@@ -1653,6 +1871,8 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   testAdminWhatsApp: () => void;
   markReceiptSent: (payout: ProviderPayout) => void;
   cancelPayout: (payout: ProviderPayout) => void;
+  generateServimilInvoice: (period?: string) => void;
+  saveClientInvoice: (invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) => void;
   previewDeliveryMessage: (orderId: string | undefined, rawText: string) => Promise<{ preview: DeliveryParserPreview; order: Order }>;
   approveParsedDelivery: (orderId: string, rawText: string, items: DeliveryParserItem[]) => Promise<void>;
   saveDeliveryDraft: (orderId: string, rawText: string, preview: DeliveryParserPreview) => Promise<void>;
@@ -1750,7 +1970,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
     setParserRawText("");
   }
 
-  type AdminModule = "dashboard" | "orders" | "accounts" | "process" | "payouts" | "products" | "servimil" | "provider" | "whatsapp" | "notifications" | "movements" | "trash" | "logs";
+  type AdminModule = "dashboard" | "orders" | "accounts" | "billing" | "process" | "payouts" | "products" | "servimil" | "provider" | "whatsapp" | "notifications" | "movements" | "trash" | "logs";
   const [adminModule, setAdminModule] = useState<AdminModule>("dashboard");
   const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
   const [deliveredAccountSearch, setDeliveredAccountSearch] = useState("");
@@ -1758,6 +1978,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
     { id: "dashboard", label: "Dashboard" },
     { id: "orders", label: "Pedidos" },
     { id: "accounts", label: "Cuentas entregadas" },
+    { id: "billing", label: "Facturacion" },
     { id: "process", label: "Procesar cuentas" },
     { id: "payouts", label: "Pagos al proveedor" },
     { id: "products", label: "Productos" },
@@ -2030,6 +2251,14 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
               </table>
             </div>
           </section>
+        )}
+        {adminModule === "billing" && (
+          <AdminBillingPanel
+            invoices={invoices}
+            servimilUser={servimilUser}
+            generateServimilInvoice={generateServimilInvoice}
+            saveClientInvoice={saveClientInvoice}
+          />
         )}
         {adminModule === "process" && processAccountsModule}
         {adminModule === "payouts" && (
@@ -2307,7 +2536,7 @@ function OrderTable({ orders, updateStatus, saveOrderEdit, saveDeliveredAccountE
         <SectionTitle eyebrow="Pedidos" title={title} compact />
         <div className="table-scroll">
           <table className="admin-orders-table">
-            <thead><tr><th>Orden</th><th>Cliente</th><th>Productos</th><th>Total venta</th><th>Total proveedor</th><th>Utilidad</th><th>Estado</th><th>Fecha</th><th>{trashMode ? "Papelera" : "Detalle"}</th></tr></thead>
+            <thead><tr><th>Orden</th><th>Cliente</th><th>Productos</th><th>Total venta</th><th>Total proveedor</th><th>Utilidad</th><th>Estado</th><th>Fecha pedido</th><th>Fecha entrega</th><th>{trashMode ? "Papelera" : "Detalle"}</th></tr></thead>
             <tbody>
               {orders.map((order) => (
                 <tr key={order.id}>
@@ -2323,6 +2552,7 @@ function OrderTable({ orders, updateStatus, saveOrderEdit, saveDeliveredAccountE
                   <td>{money.format(order.profit_total || 0)}</td>
                   <td><StatusBadge status={order.status} /></td>
                   <td>{formatDateTime(order.created_at)}</td>
+                  <td>{formatDateTime(order.delivered_at)}</td>
                   <td>
                     <button className="detail-trigger" onClick={() => setSelectedOrderId(order.id)} type="button">
                       {trashMode ? "Ver papelera" : "Ver detalle"}

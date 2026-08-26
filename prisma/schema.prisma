@@ -45,6 +45,7 @@ model User {
   notifications  Notification[]
   clientWallet   ClientWallet?
   providerPaymentConfigs ProviderPaymentConfig[]
+  clientInvoices ClientInvoice[]
 
   @@index([role])
   @@map("users")
@@ -114,6 +115,7 @@ model Order {
   payments       Payment[]
   providerPayouts ProviderPayout[]
   walletMovements WalletMovement[]
+  invoiceLines   ClientInvoiceLine[]
 
   @@index([user_id])
   @@index([order_number])
@@ -320,12 +322,68 @@ model DeliveredAccount {
   orderItem          OrderItem @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
   product            Product   @relation(fields: [product_id], references: [id])
   deliveredBy        User      @relation("DeliveredBy", fields: [delivered_by], references: [id])
+  invoiceLines       ClientInvoiceLine[]
 
   @@index([order_id])
   @@index([order_item_id])
   @@index([product_id])
   @@index([delivered_by])
   @@map("delivered_accounts")
+}
+
+model ClientInvoice {
+  id                String              @id @default(cuid())
+  invoice_number    String              @unique
+  user_id           String
+  period            String
+  title             String
+  status            String              @default("draft")
+  currency          String              @default("COP")
+  issue_date        DateTime
+  due_date          DateTime
+  total_amount      Int                 @default(0)
+  notes             String?
+  auto_generated    Boolean             @default(true)
+  admin_notified_at DateTime?
+  created_by        String?
+  created_at        DateTime            @default(now())
+  updated_at        DateTime            @updatedAt
+  user              User                @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  lines             ClientInvoiceLine[]
+
+  @@unique([user_id, period])
+  @@index([user_id])
+  @@index([period])
+  @@index([status])
+  @@index([due_date])
+  @@map("client_invoices")
+}
+
+model ClientInvoiceLine {
+  id                   String            @id @default(cuid())
+  invoice_id           String
+  order_id             String?
+  delivered_account_id String?
+  description          String
+  account_email        String?
+  account_password     String?
+  profile_name         String?
+  pin                  String?
+  quantity             Int               @default(1)
+  unit_price           Int               @default(0)
+  total                Int               @default(0)
+  ordered_at           DateTime?
+  delivered_at         DateTime?
+  notes                String?
+  position             Int               @default(0)
+  invoice              ClientInvoice     @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  order                Order?            @relation(fields: [order_id], references: [id], onDelete: SetNull)
+  deliveredAccount     DeliveredAccount? @relation(fields: [delivered_account_id], references: [id], onDelete: SetNull)
+
+  @@index([invoice_id])
+  @@index([order_id])
+  @@index([delivered_account_id])
+  @@map("client_invoice_lines")
 }
 
 model Movement {

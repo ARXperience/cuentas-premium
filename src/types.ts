@@ -197,6 +197,45 @@ export type Notification = {
   created_at: string;
 };
 
+export type ClientInvoiceLine = {
+  id: string;
+  invoice_id: string;
+  order_id?: string | null;
+  delivered_account_id?: string | null;
+  description: string;
+  account_email?: string | null;
+  profile_name?: string | null;
+  pin?: string | null;
+  quantity: number;
+  unit_price: number;
+  total: number;
+  ordered_at?: string | null;
+  delivered_at?: string | null;
+  notes?: string | null;
+  position: number;
+  order?: Pick<Order, "id" | "order_number"> | null;
+};
+
+export type ClientInvoice = {
+  id: string;
+  invoice_number: string;
+  user_id: string;
+  period: string;
+  title: string;
+  status: "draft" | "sent" | "paid" | "cancelled" | string;
+  currency: string;
+  issue_date: string;
+  due_date: string;
+  total_amount: number;
+  notes?: string | null;
+  auto_generated: boolean;
+  admin_notified_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  user?: User | null;
+  lines: ClientInvoiceLine[];
+};
+
 export type Payment = {
   id: string;
   order_id: string;

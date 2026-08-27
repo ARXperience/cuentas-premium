@@ -61,7 +61,7 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json({
-  limit: '1mb',
+  limit: '3mb',
   verify: (req, _res, buf) => {
     (req as Request).rawBody = buf.toString('utf8');
   }
@@ -359,6 +359,38 @@ function serializeOrder(order: any, viewer?: AuthUser) {
           }))
         : undefined,
     deliveries: serializedDeliveries
+  };
+}
+
+function serializeAccountReport(report: any) {
+  return {
+    id: report.id,
+    user_id: report.user_id,
+    order_id: report.order_id,
+    delivered_account_id: report.delivered_account_id,
+    reason: report.reason,
+    details: report.details,
+    evidence_data_url: report.evidence_data_url,
+    status: report.status,
+    admin_notes: report.admin_notes,
+    resolved_by: report.resolved_by,
+    resolved_at: report.resolved_at,
+    created_at: report.created_at,
+    updated_at: report.updated_at,
+    user: safeUser(report.user, true),
+    order: report.order ? {
+      id: report.order.id,
+      order_number: report.order.order_number,
+      created_at: report.order.created_at
+    } : null,
+    delivered_account: report.deliveredAccount ? {
+      id: report.deliveredAccount.id,
+      delivered_email: report.deliveredAccount.delivered_email,
+      profile_name: report.deliveredAccount.profile_name,
+      pin: report.deliveredAccount.pin,
+      delivered_at: report.deliveredAccount.delivered_at,
+      product_name: report.deliveredAccount.orderItem?.product_name || report.deliveredAccount.product?.name || 'Cuenta entregada'
+    } : null
   };
 }
 
@@ -1787,6 +1819,117 @@ app.get('/api/provider/deliveries', requireAuth, requireRole('provider'), async 
         delivered_at: delivery.delivered_at
       }))
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const accountReportReasons = ['defective', 'missing_code', 'expired', 'screen_changed', 'credentials_invalid', 'profile_missing', 'other'] as const;
+const accountReportStatuses = ['open', 'reviewing', 'resolved', 'rejected'] as const;
+const accountReportInclude = {
+  user: true,
+  order: { select: { id: true, order_number: true, created_at: true } },
+  deliveredAccount: { include: { orderItem: true, product: true } }
+} as const;
+
+const createAccountReportSchema = z.object({
+  delivered_account_id: z.string().min(1),
+  reason: z.enum(accountReportReasons),
+  details: z.string().trim().max(1200).optional().default(''),
+  evidence_data_url: z.string()
+    .max(2_200_000, 'La imagen de evidencia es demasiado pesada.')
+    .regex(/^data:image\/(?:jpeg|png|webp);base64,/i, 'Adjunta una imagen valida como evidencia.')
+});
+
+app.post('/api/account-reports', sensitiveLimiter, requireAuth, requireRole('client'), async (req, res, next) => {
+  try {
+    const input = createAccountReportSchema.parse(req.body);
+    const deliveredAccount = await prisma.deliveredAccount.findUnique({
+      where: { id: input.delivered_account_id },
+      include: { order: true, orderItem: true, product: true }
+    });
+    if (!deliveredAccount || deliveredAccount.order.deleted_at || deliveredAccount.order.user_id !== req.user!.id) {
+      return res.status(404).json({ message: 'La cuenta entregada no existe o no pertenece a tus pedidos.' });
+    }
+
+    const activeReport = await prisma.accountReport.findFirst({
+      where: {
+        delivered_account_id: deliveredAccount.id,
+        status: { in: ['open', 'reviewing'] }
+      }
+    });
+    if (activeReport) return res.status(409).json({ message: 'Esta cuenta ya tiene un reporte abierto o en revision.' });
+
+    const report = await prisma.accountReport.create({
+      data: {
+        user_id: req.user!.id,
+        order_id: deliveredAccount.order_id,
+        delivered_account_id: deliveredAccount.id,
+        reason: input.reason,
+        details: input.details || null,
+        evidence_data_url: input.evidence_data_url
+      },
+      include: accountReportInclude
+    });
+    await addMovement('account.reported', `Cuenta ${deliveredAccount.orderItem.product_name} reportada en la orden ${deliveredAccount.order.order_number}.`, req.user!.id, deliveredAccount.order_id);
+    await createRoleNotifications(
+      'admin',
+      deliveredAccount.order_id,
+      'account.reported',
+      'Nueva cuenta reportada',
+      `${report.user.name} reporto una cuenta de ${deliveredAccount.orderItem.product_name} en la orden ${deliveredAccount.order.order_number}.`
+    );
+    res.status(201).json({ report: serializeAccountReport(report), message: 'Reporte enviado. El equipo revisara tu cuenta.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/admin/account-reports', requireAuth, requireRole('admin'), async (_req, res, next) => {
+  try {
+    const reports = await prisma.accountReport.findMany({
+      include: accountReportInclude,
+      orderBy: [{ status: 'asc' }, { created_at: 'desc' }]
+    });
+    res.json({ reports: reports.map(serializeAccountReport) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const updateAccountReportSchema = z.object({
+  status: z.enum(accountReportStatuses),
+  admin_notes: z.string().trim().max(1200).optional().default('')
+});
+
+app.patch('/api/admin/account-reports/:id', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
+  try {
+    const input = updateAccountReportSchema.parse(req.body);
+    const current = await prisma.accountReport.findUniqueOrThrow({
+      where: { id: paramId(req.params.id) },
+      include: accountReportInclude
+    });
+    const isClosed = ['resolved', 'rejected'].includes(input.status);
+    const report = await prisma.accountReport.update({
+      where: { id: current.id },
+      data: {
+        status: input.status,
+        admin_notes: input.admin_notes || null,
+        resolved_by: isClosed ? req.user!.id : null,
+        resolved_at: isClosed ? new Date() : null
+      },
+      include: accountReportInclude
+    });
+    const statusLabel = input.status === 'reviewing' ? 'en revision' : input.status === 'resolved' ? 'resuelto' : input.status === 'rejected' ? 'cerrado' : 'abierto';
+    await createNotification(
+      report.user_id,
+      report.order_id,
+      'account.report_updated',
+      'Actualizacion de tu reporte',
+      `El reporte de ${report.deliveredAccount.orderItem.product_name} en la orden ${report.order.order_number} ahora esta ${statusLabel}.${input.admin_notes ? ` ${input.admin_notes}` : ''}`
+    );
+    await addMovement('account.report_updated', `Reporte de la orden ${report.order.order_number} actualizado a ${input.status}.`, req.user!.id, report.order_id);
+    res.json({ report: serializeAccountReport(report), message: 'Reporte actualizado y cliente notificado.' });
   } catch (error) {
     next(error);
   }

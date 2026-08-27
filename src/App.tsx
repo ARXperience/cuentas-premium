@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { CartItem, ClientInvoice, Dashboard, DeliveredAccount, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
+import type { AccountReport, AccountReportReason, AccountReportStatus, CartItem, ClientInvoice, Dashboard, DeliveredAccount, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
 import centroDigitalLogo from "./assets/centro-digital-imagotipo.png";
 import centroDigitalWordmark from "./assets/centro-digital-wordmark.png";
 import servimilLogo from "./assets/clients/servimil.png";
@@ -22,6 +22,55 @@ import chatgptLogo from "./assets/brands/chatgpt.svg";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 const money = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
+const accountReportReasonOptions: Array<{ value: AccountReportReason; label: string }> = [
+  { value: "defective", label: "La cuenta presenta fallas" },
+  { value: "missing_code", label: "Falta el codigo de acceso" },
+  { value: "expired", label: "La cuenta esta vencida" },
+  { value: "screen_changed", label: "Cambiaron o eliminaron la pantalla" },
+  { value: "credentials_invalid", label: "Usuario o contrasena no funcionan" },
+  { value: "profile_missing", label: "No aparece el perfil asignado" },
+  { value: "other", label: "Otro inconveniente" }
+];
+const accountReportStatusOptions: Array<{ value: AccountReportStatus; label: string }> = [
+  { value: "open", label: "Abierto" },
+  { value: "reviewing", label: "En revision" },
+  { value: "resolved", label: "Resuelto" },
+  { value: "rejected", label: "Cerrado sin cambio" }
+];
+
+function accountReportReasonLabel(reason: AccountReportReason) {
+  return accountReportReasonOptions.find((option) => option.value === reason)?.label || reason;
+}
+
+function accountReportStatusLabel(status: AccountReportStatus) {
+  return accountReportStatusOptions.find((option) => option.value === status)?.label || status;
+}
+
+async function evidenceImageDataUrl(file: File) {
+  if (!file.type.startsWith("image/")) throw new Error("Selecciona un archivo de imagen valido.");
+  if (file.size > 10 * 1024 * 1024) throw new Error("La imagen no puede superar 10 MB.");
+  const sourceUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("No fue posible procesar la imagen."));
+      element.src = sourceUrl;
+    });
+    const maxDimension = 1600;
+    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
+    let dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+    if (dataUrl.length > 2_100_000) dataUrl = canvas.toDataURL("image/jpeg", 0.62);
+    if (dataUrl.length > 2_100_000) throw new Error("La evidencia sigue siendo demasiado pesada. Usa una captura mas pequena.");
+    return dataUrl;
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
   return new Intl.DateTimeFormat("es-CO", {
@@ -178,6 +227,7 @@ function App() {
   const [deliveryDrafts, setDeliveryDrafts] = useState<DeliveryDraft[]>([]);
   const [whatsappInboundMessages, setWhatsappInboundMessages] = useState<WhatsAppInboundMessage[]>([]);
   const [adminLogs, setAdminLogs] = useState<SystemLog[]>([]);
+  const [accountReports, setAccountReports] = useState<AccountReport[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [view, setView] = useState<View>(token ? "auth" : "auth");
   const [selectedAddedProduct, setSelectedAddedProduct] = useState<Product | null>(null);
@@ -351,6 +401,12 @@ function App() {
     setAdminLogs(data.logs || []);
   }
 
+  async function loadAccountReports() {
+    if (user?.role !== "admin") return;
+    const data = await request<{ reports: AccountReport[] }>("/api/admin/account-reports");
+    setAccountReports(data.reports || []);
+  }
+
   async function loadProviderDeliveries() {
     if (user?.role !== "provider") return;
     const data = await request<{ deliveries: ProviderDelivery[] }>("/api/provider/deliveries");
@@ -378,7 +434,31 @@ function App() {
   }
 
   async function refreshAdminData() {
-    await Promise.all([loadDashboard(), loadOrders(), loadUsers(), loadProducts(), loadClientInvoices(), loadProviderConfig(), loadPendingPayouts(), loadPendingDeliveryOrders(), loadTrashedOrders(), loadWhatsAppStatus(), loadEmailStatus(), loadDeliveryDrafts(), loadWhatsAppInbound(), loadAdminLogs(), loadNotifications(), loadUnreadNotifications()]);
+    await Promise.all([loadDashboard(), loadOrders(), loadUsers(), loadProducts(), loadClientInvoices(), loadProviderConfig(), loadPendingPayouts(), loadPendingDeliveryOrders(), loadTrashedOrders(), loadWhatsAppStatus(), loadEmailStatus(), loadDeliveryDrafts(), loadWhatsAppInbound(), loadAdminLogs(), loadAccountReports(), loadNotifications(), loadUnreadNotifications()]);
+  }
+
+  async function submitAccountReport(input: { delivered_account_id: string; reason: AccountReportReason; details: string; evidence_data_url: string }) {
+    setBusy(true);
+    try {
+      const result = await request<{ report: AccountReport; message: string }>("/api/account-reports", {
+        method: "POST",
+        body: JSON.stringify(input)
+      });
+      setNotice(result.message || "Reporte enviado correctamente.");
+      await refreshClientData().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateAccountReport(reportId: string, status: AccountReportStatus, adminNotes: string) {
+    const result = await request<{ report: AccountReport; message: string }>(`/api/admin/account-reports/${reportId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status, admin_notes: adminNotes })
+    });
+    setAccountReports((current) => current.map((report) => report.id === reportId ? result.report : report));
+    setNotice(result.message || "Reporte actualizado.");
+    await Promise.all([loadNotifications(), loadUnreadNotifications(), loadDashboard()]);
   }
 
   function addToCart(product: Product) {
@@ -896,9 +976,9 @@ function App() {
       {view === "auth" && <AuthLanding authSubmit={authSubmit} busy={busy} />}
       {view === "catalog" && user?.role === "client" && <Catalog products={products} addToCart={addToCart} />}
       {view === "cart" && user?.role === "client" && <CartPage cart={cart} total={cartTotal} changeQuantity={changeQuantity} removeFromCart={removeFromCart} checkout={checkout} busy={busy} onContinueShopping={() => setView("catalog")} />}
-      {view === "client" && user?.role === "client" && <ClientPanel user={user} orders={orders} notifications={notifications} unreadNotifications={unreadNotifications} markNotificationRead={markNotificationRead} cancelOrder={cancelClientOrder} copy={copy} goToCatalog={() => setView("catalog")} />}
+      {view === "client" && user?.role === "client" && <ClientPanel user={user} orders={orders} notifications={notifications} unreadNotifications={unreadNotifications} markNotificationRead={markNotificationRead} cancelOrder={cancelClientOrder} submitAccountReport={submitAccountReport} busy={busy} copy={copy} goToCatalog={() => setView("catalog")} />}
       {view === "provider" && user?.role === "provider" && <ProviderPanel orders={orders} deliveries={providerDeliveries} deliver={deliver} busy={busy} />}
-      {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} trashedOrders={trashedOrders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} invoices={clientInvoices} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} notifications={notifications} unreadNotifications={unreadNotifications} adminLogs={adminLogs} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} cancelPayout={cancelPayout} generateServimilInvoice={generateServimilInvoice} saveClientInvoice={saveClientInvoice} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} saveDeliveredAccountEdit={saveDeliveredAccountEdit} markNotificationRead={markNotificationRead} deleteOrder={deleteAdminOrder} copy={copy} />}
+      {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} trashedOrders={trashedOrders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} invoices={clientInvoices} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} notifications={notifications} unreadNotifications={unreadNotifications} adminLogs={adminLogs} accountReports={accountReports} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} cancelPayout={cancelPayout} generateServimilInvoice={generateServimilInvoice} saveClientInvoice={saveClientInvoice} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} saveDeliveredAccountEdit={saveDeliveredAccountEdit} updateAccountReport={updateAccountReport} markNotificationRead={markNotificationRead} deleteOrder={deleteAdminOrder} copy={copy} />}
 
       <AddedProductModal
         product={selectedAddedProduct}
@@ -1256,18 +1336,21 @@ function orderIsFullyDelivered(order: Order) {
   return expectedUnits > 0 && deliveredUnitsForOrder(order) >= expectedUnits;
 }
 
-function ClientPanel({ user, orders, notifications, unreadNotifications, markNotificationRead, cancelOrder, copy, goToCatalog }: {
+function ClientPanel({ user, orders, notifications, unreadNotifications, markNotificationRead, cancelOrder, submitAccountReport, busy, copy, goToCatalog }: {
   user: User;
   orders: Order[];
   notifications: Notification[];
   unreadNotifications: number;
   markNotificationRead: (notificationId: string) => void;
   cancelOrder: (order: Order) => void;
+  submitAccountReport: (input: { delivered_account_id: string; reason: AccountReportReason; details: string; evidence_data_url: string }) => Promise<void>;
+  busy: boolean;
   copy: (text?: string | null) => void;
   goToCatalog: () => void;
 }) {
   const [clientSearch, setClientSearch] = useState("");
   const [accountsModalOrder, setAccountsModalOrder] = useState<Order | null>(null);
+  const [reportRequest, setReportRequest] = useState<{ deliveries: ClientDeliveryRow[]; initialAccountId?: string } | null>(null);
   const [clientTab, setClientTab] = useState<"orders" | "accounts" | "notifications">("orders");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const deliveries = buildClientDeliveryRows(orders);
@@ -1374,7 +1457,7 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
             <button className={clientTab === "notifications" ? "active" : ""} onClick={() => selectTab("notifications")}>Notificaciones <strong>{unreadNotifications}</strong></button>
           </nav>
 
-          {clientTab === "orders" && <ClientOrderTable orders={filteredOrders} onOpenAccounts={setAccountsModalOrder} onCancelOrder={cancelOrder} />}
+          {clientTab === "orders" && <ClientOrderTable orders={filteredOrders} onOpenAccounts={setAccountsModalOrder} onCancelOrder={cancelOrder} onReportOrder={(order) => setReportRequest({ deliveries: buildClientDeliveryRows([order]) })} />}
           {clientTab === "accounts" && <section className="client-accounts-panel delivered-accounts-panel">
           <SectionTitle eyebrow="Privado" title="Mis cuentas entregadas" compact />
           <div className="delivered-toolbar">
@@ -1387,7 +1470,7 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
           <div className="table-scroll delivered-table">
             <table>
               <thead>
-                <tr><th>Orden</th><th>Compra</th><th>Entrega</th><th>Servicio</th><th>Cant.</th><th>Valor</th><th>Correo / usuario</th><th>Contrasena</th><th>Pantalla</th><th>Perfil</th><th>PIN</th><th>Notas</th></tr>
+                <tr><th>Orden</th><th>Compra</th><th>Entrega</th><th>Servicio</th><th>Cant.</th><th>Valor</th><th>Correo / usuario</th><th>Contrasena</th><th>Pantalla</th><th>Perfil</th><th>PIN</th><th>Notas</th><th>Accion</th></tr>
               </thead>
               <tbody>
                 {filteredDeliveries.map(({ order, item, account, deliveredUnits, totalValue }) => (
@@ -1404,9 +1487,10 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
                     <td>{account.profile_name ? <button className="table-copy" onClick={() => copy(account.profile_name || "")}>{account.profile_name}</button> : "-"}</td>
                     <td>{account.pin ? <button className="table-copy" onClick={() => copy(account.pin || "")}>{account.pin}</button> : "-"}</td>
                     <td>{visibleAccountNotes(account.notes) || "-"}</td>
+                    <td><button className="report-account-button" onClick={() => setReportRequest({ deliveries: [{ order, item, account, deliveredUnits, totalValue, unitValue: orderItemUnitValue(item) }], initialAccountId: account.id })}>Reportar cuenta</button></td>
                   </tr>
                 ))}
-                {filteredDeliveries.length === 0 && <tr><td colSpan={11}>Cuando el proveedor cargue las cuentas apareceran aqui.</td></tr>}
+                {filteredDeliveries.length === 0 && <tr><td colSpan={13}>Cuando el proveedor cargue las cuentas apareceran aqui.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -1414,12 +1498,21 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
           {clientTab === "notifications" && <NotificationsPanel notifications={filteredNotifications} markNotificationRead={markNotificationRead} title="Notificaciones" emptyMessage="No tienes notificaciones pendientes." embedded />}
         </section>
       </section>
-      <AccountsModal order={accountsModalOrder} onClose={() => setAccountsModalOrder(null)} />
+      <AccountsModal order={accountsModalOrder} onClose={() => setAccountsModalOrder(null)} onReportAccount={(delivery) => { setAccountsModalOrder(null); setReportRequest({ deliveries: [delivery], initialAccountId: delivery.account.id }); }} />
+      <AccountReportModal
+        request={reportRequest}
+        busy={busy}
+        onClose={() => setReportRequest(null)}
+        onSubmit={async (input) => {
+          await submitAccountReport(input);
+          setReportRequest(null);
+        }}
+      />
     </main>
   );
 }
 
-function ClientOrderTable({ orders, onOpenAccounts, onCancelOrder }: { orders: Order[]; onOpenAccounts: (order: Order) => void; onCancelOrder: (order: Order) => void }) {
+function ClientOrderTable({ orders, onOpenAccounts, onCancelOrder, onReportOrder }: { orders: Order[]; onOpenAccounts: (order: Order) => void; onCancelOrder: (order: Order) => void; onReportOrder: (order: Order) => void }) {
   return (
     <section className="client-table-panel table-panel">
       <div className="table-scroll">
@@ -1450,6 +1543,8 @@ function ClientOrderTable({ orders, onOpenAccounts, onCancelOrder }: { orders: O
                   <td>
                     {canCancel ? (
                       <button className="danger-link" onClick={() => onCancelOrder(order)}>Cancelar</button>
+                    ) : accountCount > 0 ? (
+                      <button className="report-account-button" onClick={() => onReportOrder(order)}>Reportar cuenta</button>
                     ) : (
                       <span className="muted-cell">-</span>
                     )}
@@ -1464,7 +1559,7 @@ function ClientOrderTable({ orders, onOpenAccounts, onCancelOrder }: { orders: O
   );
 }
 
-function AccountsModal({ order, onClose }: { order: Order | null; onClose: () => void }) {
+function AccountsModal({ order, onClose, onReportAccount }: { order: Order | null; onClose: () => void; onReportAccount: (delivery: ClientDeliveryRow) => void }) {
   if (!order) return null;
   const deliveries = buildClientDeliveryRows([order]);
   return (
@@ -1478,7 +1573,9 @@ function AccountsModal({ order, onClose }: { order: Order | null; onClose: () =>
           <button className="modal-close" onClick={onClose}>Cerrar</button>
         </div>
         <div className="accounts-modal-list">
-          {deliveries.map(({ item, account, deliveredUnits, totalValue }) => (
+          {deliveries.map((delivery) => {
+            const { item, account, deliveredUnits, totalValue } = delivery;
+            return (
             <article className="account-access-card" key={account.id}>
               <div>
                 <strong>{item.product_name}</strong>
@@ -1494,10 +1591,117 @@ function AccountsModal({ order, onClose }: { order: Order | null; onClose: () =>
                 <div className="account-detail-field"><span>PIN</span><strong>{account.pin || "-"}</strong></div>
               </div>
               {visibleAccountNotes(account.notes) && <p>{visibleAccountNotes(account.notes)}</p>}
+              <button className="report-account-button account-card-report" onClick={() => onReportAccount(delivery)}>Reportar esta cuenta</button>
             </article>
-          ))}
+          );})}
         </div>
       </article>
+    </div>
+  );
+}
+
+function AccountReportModal({ request, busy, onClose, onSubmit }: {
+  request: { deliveries: ClientDeliveryRow[]; initialAccountId?: string } | null;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (input: { delivered_account_id: string; reason: AccountReportReason; details: string; evidence_data_url: string }) => Promise<void>;
+}) {
+  const [accountId, setAccountId] = useState("");
+  const [reason, setReason] = useState<AccountReportReason>("defective");
+  const [details, setDetails] = useState("");
+  const [evidence, setEvidence] = useState("");
+  const [processingImage, setProcessingImage] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!request) return;
+    setAccountId(request.initialAccountId || request.deliveries[0]?.account.id || "");
+    setReason("defective");
+    setDetails("");
+    setEvidence("");
+    setError("");
+  }, [request]);
+
+  if (!request) return null;
+  const selected = request.deliveries.find((delivery) => delivery.account.id === accountId) || request.deliveries[0];
+
+  async function selectEvidence(file?: File) {
+    if (!file) return;
+    setProcessingImage(true);
+    setError("");
+    try {
+      setEvidence(await evidenceImageDataUrl(file));
+    } catch (caught) {
+      setEvidence("");
+      setError(caught instanceof Error ? caught.message : "No fue posible procesar la evidencia.");
+    } finally {
+      setProcessingImage(false);
+    }
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!accountId || !evidence) {
+      setError("Selecciona la cuenta y adjunta una imagen de evidencia.");
+      return;
+    }
+    setError("");
+    try {
+      await onSubmit({ delivered_account_id: accountId, reason, details, evidence_data_url: evidence });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No fue posible enviar el reporte.");
+    }
+  }
+
+  return (
+    <div className="modal-backdrop report-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="account-report-title">
+      <form className="account-report-modal" onSubmit={submit}>
+        <div className="modal-headline">
+          <div>
+            <span className="eyebrow">Soporte de cuentas</span>
+            <h2 id="account-report-title">Reportar una cuenta</h2>
+          </div>
+          <button type="button" className="modal-close" onClick={onClose} disabled={busy}>Cerrar</button>
+        </div>
+        <p className="report-modal-intro">Cuéntanos qué sucedió. La evidencia ayudará al equipo a revisar y reemplazar la cuenta con mayor rapidez.</p>
+        <label>
+          Cuenta afectada
+          <select value={accountId} onChange={(event) => setAccountId(event.target.value)} required>
+            {request.deliveries.map(({ order, item, account }) => (
+              <option key={account.id} value={account.id}>{item.product_name} · {account.delivered_email || account.profile_name || "Cuenta entregada"} · {orderLabel(order)}</option>
+            ))}
+          </select>
+        </label>
+        {selected && (
+          <div className="report-account-summary">
+            <BrandLogo brandKey={undefined} name={selected.item.product_name} small />
+            <div><strong>{selected.item.product_name}</strong><span>Entregada {formatDateTime(selected.account.delivered_at)}</span></div>
+            <span>{selected.account.delivered_email || selected.account.profile_name || "Sin usuario visible"}</span>
+          </div>
+        )}
+        <label>
+          ¿Qué sucedió?
+          <select value={reason} onChange={(event) => setReason(event.target.value as AccountReportReason)} required>
+            {accountReportReasonOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <label>
+          Detalles adicionales
+          <textarea value={details} onChange={(event) => setDetails(event.target.value)} maxLength={1200} placeholder="Ejemplo: al ingresar aparece un mensaje de contraseña incorrecta..." />
+          <small>{details.length}/1200</small>
+        </label>
+        <label className={evidence ? "report-evidence-field ready" : "report-evidence-field"}>
+          <span>{evidence ? "Evidencia lista" : "Adjuntar imagen de evidencia"}</span>
+          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => selectEvidence(event.target.files?.[0])} required={!evidence} />
+          <small>{processingImage ? "Optimizando imagen..." : "PNG, JPG o WEBP. La imagen se optimiza antes de enviarse."}</small>
+        </label>
+        {evidence && <img className="report-evidence-preview" src={evidence} alt="Vista previa de la evidencia" />}
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="modal-actions report-modal-actions">
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>Cancelar</button>
+          <button className="btn-solid" disabled={busy || processingImage || !evidence}>{busy ? "Enviando reporte..." : "Enviar reporte"}</button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -2212,7 +2416,92 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
   );
 }
 
-function AdminPanel({ dashboard, users, products, orders, trashedOrders, pendingDeliveryOrders, pendingPayouts, invoices, providerConfig, whatsappStatus, whatsappQr, emailStatus, notifications, unreadNotifications, adminLogs, savingProductId, saveProduct, saveProviderConfig, saveAdminNotificationConfig, saveEmailConfig, testAdminEmail, connectWhatsApp, retryWhatsAppFailed, disconnectWhatsApp, testAdminWhatsApp, markReceiptSent, cancelPayout, generateServimilInvoice, saveClientInvoice, previewDeliveryMessage, approveParsedDelivery, saveDeliveryDraft, updateStatus, saveOrderEdit, saveDeliveredAccountEdit, markNotificationRead, deleteOrder, copy }: {
+function AdminAccountReports({ reports, updateReport }: { reports: AccountReport[]; updateReport: (reportId: string, status: AccountReportStatus, adminNotes: string) => Promise<void> }) {
+  const [filter, setFilter] = useState<"active" | "all" | AccountReportStatus>("active");
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const visibleReports = reports.filter((report) => filter === "all" || (filter === "active" ? ["open", "reviewing"].includes(report.status) : report.status === filter));
+
+  async function save(report: AccountReport, event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setSavingId(report.id);
+    setError("");
+    try {
+      await updateReport(report.id, form.get("status") as AccountReportStatus, String(form.get("admin_notes") || ""));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No fue posible actualizar el reporte.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  return (
+    <section className="glass-panel admin-module-panel account-reports-panel">
+      <div className="report-panel-heading">
+        <SectionTitle eyebrow="Soporte" title="Reportes de cuentas" compact />
+        <label>
+          Estado
+          <select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
+            <option value="active">Pendientes de atencion</option>
+            <option value="all">Todos</option>
+            {accountReportStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="report-admin-summary">
+        <ClientMetricCard tone="orange" label="Abiertos" value={reports.filter((report) => report.status === "open").length} caption="Nuevos casos" />
+        <ClientMetricCard tone="blue" label="En revision" value={reports.filter((report) => report.status === "reviewing").length} caption="En seguimiento" />
+        <ClientMetricCard tone="green" label="Resueltos" value={reports.filter((report) => report.status === "resolved").length} caption="Casos atendidos" />
+      </div>
+      <div className="account-report-list">
+        {error && <p className="form-error" role="alert">{error}</p>}
+        {visibleReports.length === 0 && <p className="empty">No hay reportes en este estado.</p>}
+        {visibleReports.map((report) => (
+          <article className="admin-report-card" key={report.id}>
+            <div className="admin-report-evidence">
+              <a href={report.evidence_data_url} target="_blank" rel="noreferrer" title="Abrir evidencia completa">
+                <img src={report.evidence_data_url} alt={`Evidencia del reporte de ${report.delivered_account?.product_name || "cuenta"}`} />
+                <span>Ver evidencia completa</span>
+              </a>
+            </div>
+            <div className="admin-report-detail">
+              <div className="admin-report-title">
+                <div>
+                  <span className="eyebrow">{report.order?.order_number || `#${report.order_id.slice(0, 8)}`}</span>
+                  <h3>{report.delivered_account?.product_name || "Cuenta entregada"}</h3>
+                </div>
+                <span className={`report-status-badge ${report.status}`}>{accountReportStatusLabel(report.status)}</span>
+              </div>
+              <dl className="report-facts">
+                <div><dt>Cliente</dt><dd>{report.user?.name || "-"}<small>{report.user?.email || ""}</small></dd></div>
+                <div><dt>Cuenta</dt><dd>{report.delivered_account?.delivered_email || report.delivered_account?.profile_name || "-"}</dd></div>
+                <div><dt>Motivo</dt><dd>{accountReportReasonLabel(report.reason)}</dd></div>
+                <div><dt>Reportado</dt><dd>{formatDateTime(report.created_at)}</dd></div>
+              </dl>
+              {report.details && <div className="report-client-message"><strong>Detalle del cliente</strong><p>{report.details}</p></div>}
+              <form className="admin-report-form" onSubmit={(event) => save(report, event)}>
+                <label>
+                  Estado del caso
+                  <select name="status" defaultValue={report.status}>
+                    {accountReportStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Respuesta o nota para el cliente
+                  <textarea name="admin_notes" defaultValue={report.admin_notes || ""} maxLength={1200} placeholder="Indica la solucion, reemplazo o resultado de la revision..." />
+                </label>
+                <button className="btn-solid" disabled={savingId === report.id}>{savingId === report.id ? "Guardando..." : "Actualizar y notificar"}</button>
+              </form>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AdminPanel({ dashboard, users, products, orders, trashedOrders, pendingDeliveryOrders, pendingPayouts, invoices, providerConfig, whatsappStatus, whatsappQr, emailStatus, notifications, unreadNotifications, adminLogs, accountReports, savingProductId, saveProduct, saveProviderConfig, saveAdminNotificationConfig, saveEmailConfig, testAdminEmail, connectWhatsApp, retryWhatsAppFailed, disconnectWhatsApp, testAdminWhatsApp, markReceiptSent, cancelPayout, generateServimilInvoice, saveClientInvoice, previewDeliveryMessage, approveParsedDelivery, saveDeliveryDraft, updateStatus, saveOrderEdit, saveDeliveredAccountEdit, updateAccountReport, markNotificationRead, deleteOrder, copy }: {
   dashboard: Dashboard | null;
   users: User[];
   products: Product[];
@@ -2228,6 +2517,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   notifications: Notification[];
   unreadNotifications: number;
   adminLogs: SystemLog[];
+  accountReports: AccountReport[];
   savingProductId: string | null;
   saveProduct: (event: FormEvent<HTMLFormElement>, product?: Product) => Promise<void>;
   saveProviderConfig: (event: FormEvent<HTMLFormElement>) => void;
@@ -2248,6 +2538,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   updateStatus: (orderId: string, status: OrderStatus) => void;
   saveOrderEdit: (orderId: string, event: FormEvent<HTMLFormElement>) => void;
   saveDeliveredAccountEdit: (deliveryId: string, event: FormEvent<HTMLFormElement>) => void;
+  updateAccountReport: (reportId: string, status: AccountReportStatus, adminNotes: string) => Promise<void>;
   markNotificationRead: (notificationId: string) => void;
   deleteOrder: (order: Order) => void;
   copy: (text?: string | null) => void;
@@ -2339,7 +2630,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
     setParserRawText("");
   }
 
-  type AdminModule = "dashboard" | "orders" | "accounts" | "billing" | "process" | "payouts" | "products" | "servimil" | "provider" | "whatsapp" | "notifications" | "movements" | "trash" | "logs";
+  type AdminModule = "dashboard" | "orders" | "accounts" | "reports" | "billing" | "process" | "payouts" | "products" | "servimil" | "provider" | "whatsapp" | "notifications" | "movements" | "trash" | "logs";
   const [adminModule, setAdminModule] = useState<AdminModule>("dashboard");
   const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
   const [deliveredAccountSearch, setDeliveredAccountSearch] = useState("");
@@ -2348,6 +2639,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
     { id: "orders", label: "Pedidos", group: "Operacion" },
     { id: "process", label: "Procesar cuentas", group: "Operacion" },
     { id: "accounts", label: "Cuentas entregadas", group: "Operacion" },
+    { id: "reports", label: `Reportes de cuentas (${accountReports.filter((report) => ["open", "reviewing"].includes(report.status)).length})`, group: "Operacion" },
     { id: "billing", label: "Facturacion", group: "Finanzas" },
     { id: "payouts", label: "Pagos al proveedor", group: "Finanzas" },
     { id: "products", label: "Catalogo", group: "Configuracion" },
@@ -2623,6 +2915,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
             </div>
           </section>
         )}
+        {adminModule === "reports" && <AdminAccountReports reports={accountReports} updateReport={updateAccountReport} />}
         {adminModule === "billing" && (
           <AdminBillingPanel
             invoices={invoices}

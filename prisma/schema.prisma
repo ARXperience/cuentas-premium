@@ -30,44 +30,46 @@ enum OrderStatus {
 }
 
 model User {
-  id             String             @id @default(cuid())
-  name           String
-  email          String             @unique
-  access_code    String?            @unique
-  password_hash  String
-  role           Role               @default(client)
-  phone          String?
-  created_at     DateTime           @default(now())
-  orders         Order[]            @relation("ClientOrders")
-  providerOrders Order[]            @relation("ProviderOrders")
-  deliveries     DeliveredAccount[] @relation("DeliveredBy")
-  movements      Movement[]
-  notifications  Notification[]
-  clientWallet   ClientWallet?
+  id                     String                  @id @default(cuid())
+  name                   String
+  email                  String                  @unique
+  access_code            String?                 @unique
+  password_hash          String
+  role                   Role                    @default(client)
+  phone                  String?
+  created_at             DateTime                @default(now())
+  orders                 Order[]                 @relation("ClientOrders")
+  providerOrders         Order[]                 @relation("ProviderOrders")
+  deliveries             DeliveredAccount[]      @relation("DeliveredBy")
+  movements              Movement[]
+  notifications          Notification[]
+  clientWallet           ClientWallet?
   providerPaymentConfigs ProviderPaymentConfig[]
-  clientInvoices ClientInvoice[]
+  clientInvoices         ClientInvoice[]
+  accountReports         AccountReport[]         @relation("AccountReportUser")
+  resolvedAccountReports AccountReport[]         @relation("AccountReportResolvedBy")
 
   @@index([role])
   @@map("users")
 }
 
 model Product {
-  id          String             @id @default(cuid())
-  name        String             @unique
-  description String
-  category    String
-  price       Int
-  provider_cost Int               @default(0)
-  active      Boolean            @default(true)
-  brand_key   String             @default("default")
-  duration    String?
-  screens     String?
-  content_type String?
-  benefits    String[]           @default([])
-  created_at  DateTime           @default(now())
-  updated_at  DateTime           @updatedAt
-  orderItems  OrderItem[]
-  deliveries  DeliveredAccount[]
+  id            String             @id @default(cuid())
+  name          String             @unique
+  description   String
+  category      String
+  price         Int
+  provider_cost Int                @default(0)
+  active        Boolean            @default(true)
+  brand_key     String             @default("default")
+  duration      String?
+  screens       String?
+  content_type  String?
+  benefits      String[]           @default([])
+  created_at    DateTime           @default(now())
+  updated_at    DateTime           @updatedAt
+  orderItems    OrderItem[]
+  deliveries    DeliveredAccount[]
 
   @@index([active])
   @@index([category])
@@ -75,47 +77,48 @@ model Product {
 }
 
 model Order {
-  id             String             @id @default(cuid())
-  order_number   String             @unique
-  user_id        String
-  provider_id    String?
-  total          Int
-  sale_total     Int              @default(0)
-  provider_total Int              @default(0)
-  profit_total   Int              @default(0)
-  status         OrderStatus         @default(pending_payment)
-  wallet_status  String              @default("pending")
-  payout_status  String              @default("pending")
-  billing_period String?
-  payment_status String              @default("pending")
-  payment_method String?
-  payment_reference String?
-  payment_provider String?
-  payment_amount Int?
-  payment_confirmed_at DateTime?
-  payment_receipt_url String?
-  whatsapp_sent  Boolean             @default(false)
-  admin_notified_at DateTime?
+  id                         String              @id @default(cuid())
+  order_number               String              @unique
+  user_id                    String
+  provider_id                String?
+  total                      Int
+  sale_total                 Int                 @default(0)
+  provider_total             Int                 @default(0)
+  profit_total               Int                 @default(0)
+  status                     OrderStatus         @default(pending_payment)
+  wallet_status              String              @default("pending")
+  payout_status              String              @default("pending")
+  billing_period             String?
+  payment_status             String              @default("pending")
+  payment_method             String?
+  payment_reference          String?
+  payment_provider           String?
+  payment_amount             Int?
+  payment_confirmed_at       DateTime?
+  payment_receipt_url        String?
+  whatsapp_sent              Boolean             @default(false)
+  admin_notified_at          DateTime?
   admin_notification_channel String?
   provider_payment_marked_at DateTime?
-  delivery_processed_at DateTime?
-  delivered_at DateTime?
-  client_notified_at DateTime?
-  deleted_at DateTime?
-  deleted_by String?
-  deleted_reason String?
-  created_at     DateTime            @default(now())
-  updated_at     DateTime            @updatedAt
-  user           User                @relation("ClientOrders", fields: [user_id], references: [id])
-  provider       User?               @relation("ProviderOrders", fields: [provider_id], references: [id])
-  items          OrderItem[]
-  deliveries     DeliveredAccount[]
-  movements      Movement[]
-  notifications  Notification[]
-  payments       Payment[]
-  providerPayouts ProviderPayout[]
-  walletMovements WalletMovement[]
-  invoiceLines   ClientInvoiceLine[]
+  delivery_processed_at      DateTime?
+  delivered_at               DateTime?
+  client_notified_at         DateTime?
+  deleted_at                 DateTime?
+  deleted_by                 String?
+  deleted_reason             String?
+  created_at                 DateTime            @default(now())
+  updated_at                 DateTime            @updatedAt
+  user                       User                @relation("ClientOrders", fields: [user_id], references: [id])
+  provider                   User?               @relation("ProviderOrders", fields: [provider_id], references: [id])
+  items                      OrderItem[]
+  deliveries                 DeliveredAccount[]
+  movements                  Movement[]
+  notifications              Notification[]
+  payments                   Payment[]
+  providerPayouts            ProviderPayout[]
+  walletMovements            WalletMovement[]
+  invoiceLines               ClientInvoiceLine[]
+  accountReports             AccountReport[]
 
   @@index([user_id])
   @@index([order_number])
@@ -131,15 +134,15 @@ model Order {
 }
 
 model ClientWallet {
-  id          String           @id @default(cuid())
-  user_id     String           @unique
-  balance     Int              @default(0)
-  currency    String           @default("COP")
-  active      Boolean          @default(true)
-  created_at  DateTime         @default(now())
-  updated_at  DateTime         @updatedAt
-  user        User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  movements   WalletMovement[]
+  id         String           @id @default(cuid())
+  user_id    String           @unique
+  balance    Int              @default(0)
+  currency   String           @default("COP")
+  active     Boolean          @default(true)
+  created_at DateTime         @default(now())
+  updated_at DateTime         @updatedAt
+  user       User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  movements  WalletMovement[]
 
   @@map("client_wallets")
 }
@@ -165,28 +168,28 @@ model WalletMovement {
 }
 
 model ProviderPayout {
-  id             String   @id @default(cuid())
-  order_id       String
-  provider_id    String?
-  amount         Int
-  currency       String   @default("COP")
-  method         String
-  status         String   @default("pending")
-  transaction_id String?
-  reference      String?
+  id                      String    @id @default(cuid())
+  order_id                String
+  provider_id             String?
+  amount                  Int
+  currency                String    @default("COP")
+  method                  String
+  status                  String    @default("pending")
+  transaction_id          String?
+  reference               String?
   admin_payment_reference String?
-  admin_payment_notes String?
-  admin_marked_by String?
-  admin_marked_at DateTime?
-  destination_type String?
-  destination_phone String?
-  destination_document String?
-  receipt_text   String?
-  raw_response   Json?
-  confirmed_at   DateTime?
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
-  order          Order    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  admin_payment_notes     String?
+  admin_marked_by         String?
+  admin_marked_at         DateTime?
+  destination_type        String?
+  destination_phone       String?
+  destination_document    String?
+  receipt_text            String?
+  raw_response            Json?
+  confirmed_at            DateTime?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+  order                   Order     @relation(fields: [order_id], references: [id], onDelete: Cascade)
 
   @@index([order_id])
   @@index([status])
@@ -212,7 +215,7 @@ model ProviderPaymentConfig {
 }
 
 model WhatsAppOutbox {
-  id          String    @id @default(cuid())
+  id         String    @id @default(cuid())
   recipient  String
   message    String
   status     String    @default("pending")
@@ -247,19 +250,19 @@ model WhatsAppInboundMessage {
 }
 
 model DeliveryDraft {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   inbound_message_id String?
   order_id           String?
-  status             String   @default("needs_review")
-  confidence         Int      @default(0)
+  status             String    @default("needs_review")
+  confidence         Int       @default(0)
   raw_text           String
   parsed_data        Json
   review_notes       String?
   created_by         String?
   approved_by        String?
   approved_at        DateTime?
-  created_at         DateTime @default(now())
-  updated_at         DateTime @updatedAt
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
 
   @@index([order_id])
   @@index([status])
@@ -268,20 +271,20 @@ model DeliveryDraft {
 }
 
 model Payment {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   order_id       String
   provider       String
   method         String
-  status         String   @default("pending")
+  status         String    @default("pending")
   amount         Int
-  currency       String   @default("COP")
+  currency       String    @default("COP")
   transaction_id String?
   reference      String?
   raw_response   Json?
   confirmed_at   DateTime?
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
-  order          Order    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  order          Order     @relation(fields: [order_id], references: [id], onDelete: Cascade)
 
   @@index([order_id])
   @@index([status])
@@ -307,7 +310,7 @@ model OrderItem {
 }
 
 model DeliveredAccount {
-  id                 String    @id @default(cuid())
+  id                 String              @id @default(cuid())
   order_id           String
   order_item_id      String
   product_id         String
@@ -317,18 +320,46 @@ model DeliveredAccount {
   pin                String?
   notes              String?
   delivered_by       String
-  delivered_at       DateTime  @default(now())
-  order              Order     @relation(fields: [order_id], references: [id], onDelete: Cascade)
-  orderItem          OrderItem @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
-  product            Product   @relation(fields: [product_id], references: [id])
-  deliveredBy        User      @relation("DeliveredBy", fields: [delivered_by], references: [id])
+  delivered_at       DateTime            @default(now())
+  order              Order               @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  orderItem          OrderItem           @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
+  product            Product             @relation(fields: [product_id], references: [id])
+  deliveredBy        User                @relation("DeliveredBy", fields: [delivered_by], references: [id])
   invoiceLines       ClientInvoiceLine[]
+  reports            AccountReport[]
 
   @@index([order_id])
   @@index([order_item_id])
   @@index([product_id])
   @@index([delivered_by])
   @@map("delivered_accounts")
+}
+
+model AccountReport {
+  id                   String           @id @default(cuid())
+  user_id              String
+  order_id             String
+  delivered_account_id String
+  reason               String
+  details              String?
+  evidence_data_url    String
+  status               String           @default("open")
+  admin_notes          String?
+  resolved_by          String?
+  resolved_at          DateTime?
+  created_at           DateTime         @default(now())
+  updated_at           DateTime         @updatedAt
+  user                 User             @relation("AccountReportUser", fields: [user_id], references: [id], onDelete: Cascade)
+  resolvedBy           User?            @relation("AccountReportResolvedBy", fields: [resolved_by], references: [id], onDelete: SetNull)
+  order                Order            @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  deliveredAccount     DeliveredAccount @relation(fields: [delivered_account_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([order_id])
+  @@index([delivered_account_id])
+  @@index([status])
+  @@index([created_at])
+  @@map("account_reports")
 }
 
 model ClientInvoice {
@@ -404,17 +435,17 @@ model Movement {
 }
 
 model Notification {
-  id          String    @id @default(cuid())
-  user_id     String
-  order_id    String?
-  type        String
-  title       String
-  message     String
-  read        Boolean   @default(false)
-  read_at     DateTime?
-  created_at  DateTime  @default(now())
-  user        User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  order       Order?    @relation(fields: [order_id], references: [id], onDelete: SetNull)
+  id         String    @id @default(cuid())
+  user_id    String
+  order_id   String?
+  type       String
+  title      String
+  message    String
+  read       Boolean   @default(false)
+  read_at    DateTime?
+  created_at DateTime  @default(now())
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  order      Order?    @relation(fields: [order_id], references: [id], onDelete: SetNull)
 
   @@index([user_id])
   @@index([order_id])

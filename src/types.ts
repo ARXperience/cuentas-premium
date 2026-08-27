@@ -45,6 +45,35 @@ export type DeliveredAccount = {
   delivered_at: string;
 };
 
+export type AccountReportReason = "defective" | "missing_code" | "expired" | "screen_changed" | "credentials_invalid" | "profile_missing" | "other";
+export type AccountReportStatus = "open" | "reviewing" | "resolved" | "rejected";
+
+export type AccountReport = {
+  id: string;
+  user_id: string;
+  order_id: string;
+  delivered_account_id: string;
+  reason: AccountReportReason;
+  details?: string | null;
+  evidence_data_url: string;
+  status: AccountReportStatus;
+  admin_notes?: string | null;
+  resolved_by?: string | null;
+  resolved_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  user?: User | null;
+  order?: { id: string; order_number: string; created_at: string } | null;
+  delivered_account?: {
+    id: string;
+    delivered_email?: string | null;
+    profile_name?: string | null;
+    pin?: string | null;
+    delivered_at: string;
+    product_name: string;
+  } | null;
+};
+
 export type OrderItem = {
   id: string;
   product_id: string;

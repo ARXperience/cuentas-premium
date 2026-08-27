@@ -2,7 +2,8 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { CartItem, ClientInvoice, Dashboard, DeliveredAccount, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
 import centroDigitalLogo from "./assets/centro-digital-imagotipo.png";
 import servimilLogo from "./assets/clients/servimil.png";
-import loginAmbientVideo from "./assets/login-ambient.mp4";
+import loginBackgroundOne from "./assets/login-background-1.mp4";
+import loginBackgroundTwo from "./assets/login-background-2.mp4";
 import netflixLogo from "./assets/brands/netflix.svg";
 import disneyPlusLogo from "./assets/brands/disney-plus.svg";
 import hboMaxLogo from "./assets/brands/hbo-max.svg";
@@ -939,33 +940,30 @@ function AuthLanding({ authSubmit, busy }: {
 }) {
   return (
     <main className="auth-landing">
-      <section className="auth-visual">
-        <video className="auth-video" autoPlay muted loop playsInline>
-          <source src={loginAmbientVideo} type="video/mp4" />
+      <div className="auth-video-wall" aria-hidden="true">
+        <video className="auth-background-video auth-background-video-one" autoPlay muted loop playsInline preload="auto">
+          <source src={loginBackgroundOne} type="video/mp4" />
         </video>
-        <div className="auth-video-scrim" />
+        <video className="auth-background-video auth-background-video-two" autoPlay muted loop playsInline preload="auto">
+          <source src={loginBackgroundTwo} type="video/mp4" />
+        </video>
+      </div>
       <section className="auth-copy">
         <div className="auth-brand-lockup">
           <img className="auth-brand-mark" src={centroDigitalLogo} alt="Imagotipo Centro Digital de Diseño" />
           <strong>CENTRO DIGITAL</strong>
         </div>
-        <span className="auth-overline">GESTIÓN DE CUENTAS PREMIUM</span>
-        <h1>Tu operación digital, <span>siempre en orden.</span></h1>
-        <p>Pedidos, entregas, pagos y facturación centralizados en un espacio privado y claro.</p>
-        <div className="auth-trust-row">
-          <span>Acceso protegido</span>
-          <span>Operación en tiempo real</span>
+        <h1>Centro<br />Digital de<br /><span>Diseño</span></h1>
+        <p className="auth-subtitle">Administrador de cuentas premium</p>
+        <div className="auth-rule" />
+        <div className="auth-feature-list">
+          <article><b aria-hidden="true">◈</b><p><strong>Acceso seguro</strong><span>Protección a nivel empresarial</span></p></article>
+          <article><b aria-hidden="true">ϟ</b><p><strong>Experiencia fluida</strong><span>Rendimiento rápido y confiable</span></p></article>
+          <article><b aria-hidden="true">◇</b><p><strong>Gestión premium</strong><span>Control total de tus cuentas y permisos</span></p></article>
         </div>
-      </section>
       </section>
       <section className="auth-access-area">
-        <div className="auth-access-intro">
-          <span className="eyebrow">AREA PRIVADA</span>
-          <h2>Bienvenido de nuevo.</h2>
-          <p>Ingresa tu codigo de acceso para continuar.</p>
-        </div>
         <AuthCard authSubmit={authSubmit} busy={busy} />
-        <p className="auth-help">Si necesitas ayuda con tu acceso, contacta al administrador de Centro Digital.</p>
       </section>
     </main>
   );
@@ -1037,10 +1035,13 @@ function AuthCard({ authSubmit, busy }: {
   return (
     <aside className="auth-panel">
       <form className="form-stack" onSubmit={authSubmit}>
-        <label className="auth-code-label" htmlFor="access_code">Codigo de acceso</label>
-        <input id="access_code" className="auth-code-input" name="access_code" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="one-time-code" placeholder="• • • •" aria-describedby="access-code-help" required />
-        <span id="access-code-help" className="auth-code-help">Usa el codigo de cuatro digitos asignado a tu perfil.</span>
-        <button className="btn-solid auth-submit" disabled={busy}>{busy ? "Validando acceso..." : "Entrar al ecosistema"}<span aria-hidden="true">→</span></button>
+        <label className="sr-only" htmlFor="access_code">Código de acceso</label>
+        <div className="auth-code-row">
+          <span className="auth-lock-icon" aria-hidden="true">♧</span>
+          <input id="access_code" className="auth-code-input" name="access_code" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="one-time-code" placeholder="Código de 4 dígitos" aria-describedby="access-code-help" required />
+        </div>
+        <span id="access-code-help" className="sr-only">Usa el código de cuatro dígitos asignado a tu perfil.</span>
+        <button className="btn-solid auth-submit" disabled={busy}>{busy ? "Validando acceso..." : "Ingresar"}</button>
       </form>
     </aside>
   );

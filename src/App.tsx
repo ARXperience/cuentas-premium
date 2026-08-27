@@ -2670,12 +2670,13 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   const [adminModule, setAdminModule] = useState<AdminModule>("dashboard");
   const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
   const [deliveredAccountSearch, setDeliveredAccountSearch] = useState("");
-  const adminModules: Array<{ id: AdminModule; label: string; group: string }> = [
+  const activeAccountReports = accountReports.filter((report) => ["open", "reviewing"].includes(report.status)).length;
+  const adminModules: Array<{ id: AdminModule; label: string; group: string; badge?: number }> = [
     { id: "dashboard", label: "Resumen", group: "Vision general" },
     { id: "orders", label: "Pedidos", group: "Operacion" },
     { id: "process", label: "Procesar cuentas", group: "Operacion" },
     { id: "accounts", label: "Cuentas entregadas", group: "Operacion" },
-    { id: "reports", label: `Reportes de cuentas (${accountReports.filter((report) => ["open", "reviewing"].includes(report.status)).length})`, group: "Operacion" },
+    { id: "reports", label: "Reportes de cuentas", group: "Operacion", badge: activeAccountReports },
     { id: "billing", label: "Facturacion", group: "Finanzas" },
     { id: "payouts", label: "Pagos al proveedor", group: "Finanzas" },
     { id: "products", label: "Catalogo", group: "Configuracion" },
@@ -2687,6 +2688,41 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
     { id: "logs", label: "Registros tecnicos", group: "Auditoria" },
     { id: "trash", label: "Papelera", group: "Auditoria" }
   ];
+  const adminModuleIcons: Record<AdminModule, MetricIconName> = {
+    dashboard: "profit",
+    orders: "orders",
+    accounts: "accounts",
+    reports: "warning",
+    billing: "money",
+    process: "delivered",
+    payouts: "provider",
+    products: "orders",
+    servimil: "accounts",
+    provider: "provider",
+    whatsapp: "whatsapp",
+    notifications: "notifications",
+    movements: "history",
+    trash: "warning",
+    logs: "review"
+  };
+  const adminModuleMeta: Record<AdminModule, { eyebrow: string; title: string; description: string }> = {
+    dashboard: { eyebrow: "Centro de control", title: "Todo el negocio, en perspectiva.", description: "Ventas, operación y alertas importantes en una vista más clara y accionable." },
+    orders: { eyebrow: "Operación", title: "Pedidos y entregas.", description: "Consulta el recorrido de cada compra y abre el detalle sin perder contexto." },
+    accounts: { eyebrow: "Inventario entregado", title: "Cuentas disponibles.", description: "Localiza rápidamente credenciales, perfiles y accesos ya procesados." },
+    reports: { eyebrow: "Soporte", title: "Casos reportados.", description: "Prioriza incidencias, revisa evidencias y mantén informado al cliente." },
+    billing: { eyebrow: "Finanzas", title: "Facturación mensual.", description: "Genera, revisa y descarga documentos de cobro desde un flujo ordenado." },
+    process: { eyebrow: "Entrega", title: "Procesar nuevas cuentas.", description: "Interpreta entregas, valida datos y publícalos con menos fricción." },
+    payouts: { eyebrow: "Finanzas", title: "Pagos al proveedor.", description: "Gestiona comprobantes, destinos y pendientes desde una sola bandeja." },
+    products: { eyebrow: "Catálogo", title: "Servicios y precios.", description: "Mantén la oferta organizada y actualiza márgenes con mayor claridad." },
+    servimil: { eyebrow: "Cliente principal", title: "Cuenta Servimil.", description: "Pedidos, facturación y actividad histórica del cliente principal." },
+    provider: { eyebrow: "Configuración", title: "Proveedor y liquidaciones.", description: "Administra los datos operativos y revisa el historial de pagos." },
+    whatsapp: { eyebrow: "Canales", title: "WhatsApp y correo.", description: "Supervisa conexiones, destinos y canales automáticos de respaldo." },
+    notifications: { eyebrow: "Bandeja", title: "Notificaciones administrativas.", description: "Revisa novedades del sistema y marca lo que ya fue atendido." },
+    movements: { eyebrow: "Auditoría", title: "Movimientos del sistema.", description: "Sigue la actividad operativa con fecha, usuario y pedido relacionado." },
+    trash: { eyebrow: "Auditoría", title: "Papelera de pedidos.", description: "Consulta pedidos retirados sin mezclarlos con la operación activa." },
+    logs: { eyebrow: "Sistema", title: "Registros técnicos.", description: "Diagnostica eventos, intentos y errores de los servicios conectados." }
+  };
+  const selectedAdminMeta = adminModuleMeta[adminModule];
   const adminModuleGroups = [...new Set(adminModules.map((module) => module.group))];
   const servimilUser = users.find((user) => user.name.toLowerCase().includes("servimil") || user.email === "cliente@centrodigital.local");
   const servimilOrders = orders.filter((order) => !servimilUser || order.user_id === servimilUser.id || order.user?.name?.toLowerCase().includes("servimil"));
@@ -2840,7 +2876,9 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
                   onClick={() => selectAdminModule(module.id)}
                   type="button"
                 >
-                  {module.label}
+                  <span className="admin-module-icon"><MetricCardIcon name={adminModuleIcons[module.id]} /></span>
+                  <em>{module.label}</em>
+                  {typeof module.badge === "number" && module.badge > 0 && <strong>{module.badge}</strong>}
                 </button>
               ))}
             </div>
@@ -2866,18 +2904,23 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
             <kbd>10s</kbd>
           </label>
           <div className="client-top-status">
-            <span className="client-online-dot">Actualizando dashboard</span>
+            <span className="client-online-dot">Sincronización activa</span>
             <div className="client-avatar compact">AD</div>
           </div>
         </header>
 
-        <div className="client-hero-row">
-          <div>
-            <span className="eyebrow">Dashboard admin</span>
-            <h1>Movimientos, ventas y actividad.</h1>
-            <p>Controla pedidos, productos, pagos manuales, notificaciones y auditoria desde un solo panel.</p>
+        <div className="admin-command-hero">
+          <div className="admin-command-copy">
+            <span className="eyebrow">{selectedAdminMeta.eyebrow}</span>
+            <h1>{selectedAdminMeta.title}</h1>
+            <p>{selectedAdminMeta.description}</p>
           </div>
-          <span className="client-refresh-note">Actualizacion automatica cada 10 segundos</span>
+          <div className="admin-command-signals" aria-label="Indicadores operativos">
+            <span><b>{pendingOrders.length}</b> por entregar</span>
+            <span><b>{activeAccountReports}</b> reportes activos</span>
+            <span><b>{unreadNotifications}</b> avisos nuevos</span>
+            <small>Actualización automática cada 10 segundos</small>
+          </div>
         </div>
       {adminModule === "dashboard" && (
         <div className="admin-module-stack">
@@ -2892,16 +2935,20 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
             <ClientMetricCard tone="orange" label="WhatsApp pendientes" value={dashboard?.notificationPending || 0} caption="Cola" />
             <ClientMetricCard tone="orange" label="WhatsApp fallidos" value={dashboard?.notificationFailed || 0} caption="Revisar" />
           </div>
-          <section className="client-main-panel operator-main-panel">
+          <section className="client-main-panel operator-main-panel admin-activity-panel">
             <SectionTitle eyebrow="Actividad" title="Ultimos movimientos" compact />
-            <div className="data-list">
+            <div className="admin-activity-list">
               {(dashboard?.movements || []).slice(0, 5).map((movement) => (
-                <div key={movement.id}>
-                  <strong>{movement.type}</strong>
-                  <span>{movement.description}</span>
-                  <span>Orden: {orderLabel(movement.order)} - {formatDateTime(movement.created_at)}</span>
-                </div>
+                <article key={movement.id}>
+                  <span className="admin-activity-icon"><MetricCardIcon name="history" /></span>
+                  <div>
+                    <strong>{movement.type}</strong>
+                    <p>{movement.description}</p>
+                  </div>
+                  <small>{orderLabel(movement.order)}<br />{formatDateTime(movement.created_at)}</small>
+                </article>
               ))}
+              {(dashboard?.movements || []).length === 0 && <p className="empty">Aún no hay movimientos para mostrar.</p>}
             </div>
           </section>
         </div>

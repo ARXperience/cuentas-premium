@@ -3050,17 +3050,21 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
         {adminModule === "products" && (
           <section className="glass-panel products-admin admin-module-panel">
             <SectionTitle eyebrow="Catalogo" title="Productos" compact />
-            <form className="product-form" onSubmit={(event) => saveProduct(event)}>
-              <input name="name" placeholder="Nombre" required />
-              <input name="description" placeholder="Descripcion" required />
-              <input name="category" placeholder="Categoria" required />
-              <input name="brand_key" placeholder="Marca visual" required />
-              <input name="price" type="number" placeholder="Precio venta" required />
-              <input name="provider_cost" type="number" placeholder="Precio proveedor" />
-              <input name="duration" placeholder="Duracion" />
-              <input name="screens" placeholder="Pantallas / perfiles" />
-              <input name="content_type" placeholder="Tipo de contenido" />
-              <textarea name="benefits" placeholder="Beneficios, uno por linea" />
+            <form className="product-form admin-product-form admin-product-create-form" onSubmit={(event) => saveProduct(event)}>
+              <label><span>Nombre del producto</span><input name="name" placeholder="Ej.: Netflix Original" required /></label>
+              <label><span>Descripción</span><input name="description" placeholder="Resumen corto del producto" required /></label>
+              <label><span>Categoría</span><input name="category" placeholder="Ej.: Netflix" required /></label>
+              <label>
+                <span>Clave visual de la marca</span>
+                <input name="brand_key" placeholder="Ej.: netflix" required />
+                <small>Define el logo y los colores del producto.</small>
+              </label>
+              <label><span>Precio de venta</span><input name="price" type="number" placeholder="Valor para el cliente" required /></label>
+              <label><span>Costo del proveedor</span><input name="provider_cost" type="number" placeholder="Valor que se paga al proveedor" /></label>
+              <label><span>Duración</span><input name="duration" placeholder="Ej.: 30 días" /></label>
+              <label><span>Pantallas / perfiles</span><input name="screens" placeholder="Ej.: 1 pantalla" /></label>
+              <label><span>Tipo de contenido</span><input name="content_type" placeholder="Ej.: Peliculas y series" /></label>
+              <label><span>Beneficios</span><textarea name="benefits" placeholder="Escribe un beneficio por linea" /></label>
               <label><input name="active" type="checkbox" defaultChecked /> Activo</label>
               <button className="btn-solid" disabled={savingProductId === "new"}>
                 {savingProductId === "new" ? "Creando..." : "Crear producto"}
@@ -3068,18 +3072,22 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
             </form>
             <div className="data-list">
               {products.map((product) => (
-                <form key={`${product.id}-${product.updated_at || "current"}`} className="inline-product" onSubmit={(event) => saveProduct(event, product)}>
+                <form key={`${product.id}-${product.updated_at || "current"}`} className="inline-product admin-product-form admin-product-edit-form" onSubmit={(event) => saveProduct(event, product)}>
                   <strong>{product.name} - Utilidad: {money.format(product.price - (product.provider_cost || 0))}</strong>
-                  <input name="name" defaultValue={product.name} />
-                  <input name="description" defaultValue={product.description} />
-                  <input name="category" defaultValue={product.category} />
-                  <input name="brand_key" defaultValue={product.brand_key} />
-                  <input name="price" type="number" defaultValue={product.price} />
-                  <input name="provider_cost" type="number" defaultValue={product.provider_cost || 0} />
-                  <input name="duration" defaultValue={product.duration || ""} />
-                  <input name="screens" defaultValue={product.screens || ""} />
-                  <input name="content_type" defaultValue={product.content_type || ""} />
-                  <textarea name="benefits" defaultValue={(product.benefits || []).join("\n")} />
+                  <label><span>Nombre del producto</span><input name="name" defaultValue={product.name} /></label>
+                  <label><span>Descripción</span><input name="description" defaultValue={product.description} /></label>
+                  <label><span>Categoría</span><input name="category" defaultValue={product.category} /></label>
+                  <label>
+                    <span>Clave visual de la marca</span>
+                    <input name="brand_key" defaultValue={product.brand_key} />
+                    <small>Controla el logo y los colores.</small>
+                  </label>
+                  <label><span>Precio de venta</span><input name="price" type="number" defaultValue={product.price} /></label>
+                  <label><span>Costo del proveedor</span><input name="provider_cost" type="number" defaultValue={product.provider_cost || 0} /></label>
+                  <label><span>Duración</span><input name="duration" defaultValue={product.duration || ""} /></label>
+                  <label><span>Pantallas / perfiles</span><input name="screens" defaultValue={product.screens || ""} /></label>
+                  <label><span>Tipo de contenido</span><input name="content_type" defaultValue={product.content_type || ""} /></label>
+                  <label><span>Beneficios</span><textarea name="benefits" defaultValue={(product.benefits || []).join("\n")} /></label>
                   <label><input name="active" type="checkbox" defaultChecked={product.active} /> Activo</label>
                   <button className="btn-solid" disabled={savingProductId === product.id}>
                     {savingProductId === product.id ? "Guardando..." : "Guardar cambios"}

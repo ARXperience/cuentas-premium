@@ -5139,6 +5139,42 @@ th {
   min-width: 160px;
 }
 
+.admin-operator-dashboard .admin-product-form {
+  align-items: start;
+}
+
+.admin-operator-dashboard .admin-product-form label:not(:has(> input[type="checkbox"])) {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.admin-operator-dashboard .admin-product-form label:not(:has(> input[type="checkbox"])) > span {
+  color: #53617a;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .035em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.admin-operator-dashboard .admin-product-form label > small {
+  color: #8795aa;
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.admin-operator-dashboard .admin-product-form textarea {
+  min-height: 76px;
+}
+
+.admin-operator-dashboard .admin-product-form > label:has(> input[type="checkbox"]),
+.admin-operator-dashboard .admin-product-form > button {
+  align-self: end;
+}
+
 .admin-operator-dashboard .data-list {
   display: grid;
   gap: 10px;

@@ -865,7 +865,7 @@ function App() {
   }
 
   return (
-    <>
+    <div className={view === "auth" ? "app-shell auth-mode" : "app-shell platform-mode"}>
       <AmbientBackground />
       {user && <nav className="navbar">
         <button className="brand-logo" onClick={() => setView(user ? getDefaultViewByRole(user.role) : "auth")}>
@@ -920,7 +920,7 @@ function App() {
       {user && <footer className="footer">
         <p className="footer-brand"><img src={centroDigitalLogo} alt="" aria-hidden="true" /><strong>CENTRO DIGITAL DE DISENO</strong> &copy; 2026. PLATAFORMA DE GESTION DE ACTIVOS.</p>
       </footer>}
-    </>
+    </div>
   );
 }
 

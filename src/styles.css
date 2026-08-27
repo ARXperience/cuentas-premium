@@ -3691,12 +3691,25 @@ th {
 }
 
 /* 2026 visual refresh: a more deliberate, operational interface. */
-body,
-button,
-input,
-textarea,
-select {
+.auth-mode,
+.auth-mode button,
+.auth-mode input,
+.auth-mode textarea,
+.auth-mode select,
+.platform-mode,
+.platform-mode * {
   font-family: "Montserrat", sans-serif !important;
+}
+
+.platform-mode,
+.platform-mode * {
+  font-weight: 400 !important;
+}
+
+.platform-mode :is(h1, h2, h3, h4, h5, h6, strong, b, button, th, kbd),
+.platform-mode :is(button, th, kbd) *,
+.platform-mode :is(.eyebrow, .auto-badge, .role-badge, .status-badge, .price, .service-title, .brand-logo, .nav-pill, .cart-button, .nav-status) {
+  font-weight: 700 !important;
 }
 
 .auth-landing {

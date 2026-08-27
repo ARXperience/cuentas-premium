@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { CartItem, ClientInvoice, Dashboard, DeliveredAccount, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
 import centroDigitalLogo from "./assets/centro-digital-imagotipo.png";
+import centroDigitalWordmark from "./assets/centro-digital-wordmark.png";
 import servimilLogo from "./assets/clients/servimil.png";
 import loginBackgroundOne from "./assets/login-background-1.mp4";
 import loginBackgroundTwo from "./assets/login-background-2.mp4";
@@ -869,8 +870,7 @@ function App() {
       <AmbientBackground />
       {user && <nav className="navbar">
         <button className="brand-logo" onClick={() => setView(user ? getDefaultViewByRole(user.role) : "auth")}>
-          <img className="brand-logo-image" src={centroDigitalLogo} alt="Centro Digital de Diseño" />
-          <span>CENTRO DIGITAL</span>
+          <img className="brand-logo-image brand-logo-wordmark" src={centroDigitalWordmark} alt="Centro Digital de Diseño" />
         </button>
         <div className="nav-actions">
           {!user && <>
@@ -1320,10 +1320,6 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
   return (
     <main className="client-dashboard">
       <aside className={sidebarOpen ? "client-sidebar open" : "client-sidebar"} aria-label="Panel cliente">
-        <button className="client-brand-lockup" onClick={() => selectTab("orders")}>
-          <img src={centroDigitalLogo} alt="Centro Digital" />
-          <strong>CENTRO DIGITAL</strong>
-        </button>
         <nav className="client-side-nav">
           <button className={clientTab === "orders" ? "active" : ""} onClick={() => selectTab("orders")}>Dashboard</button>
           <button onClick={() => { goToCatalog(); setSidebarOpen(false); }}>Productos</button>
@@ -1601,10 +1597,6 @@ function ProviderPanel({ orders, deliveries, deliver, busy }: {
   return (
     <main className="operator-dashboard provider-operator-dashboard">
       <aside className={providerSidebarOpen ? "operator-sidebar open" : "operator-sidebar"} aria-label="Panel proveedor">
-        <button className="client-brand-lockup" onClick={() => selectProviderTab("pending")}>
-          <img src={centroDigitalLogo} alt="Centro Digital" />
-          <strong>CENTRO DIGITAL</strong>
-        </button>
         <nav className="operator-side-nav">
           <button className={providerTab === "pending" ? "active" : ""} onClick={() => selectProviderTab("pending")}>Pendientes <strong>{activeOrders.length}</strong></button>
           <button className={providerTab === "history" ? "active" : ""} onClick={() => selectProviderTab("history")}>Historial <strong>{deliveries.length}</strong></button>
@@ -2509,10 +2501,6 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   return (
     <main className="operator-dashboard admin-operator-dashboard">
       <aside className={adminSidebarOpen ? "operator-sidebar open" : "operator-sidebar"} aria-label="Panel admin">
-        <button className="client-brand-lockup" onClick={() => selectAdminModule("dashboard")}>
-          <img src={centroDigitalLogo} alt="Centro Digital" />
-          <strong>CENTRO DIGITAL</strong>
-        </button>
         <nav className="operator-side-nav admin-tabs" aria-label="Modulos admin">
           {adminModuleGroups.map((group) => (
             <div className="admin-nav-group" key={group}>

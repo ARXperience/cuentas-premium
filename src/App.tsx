@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { CartItem, ClientInvoice, Dashboard, DeliveredAccount, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
 import centroDigitalLogo from "./assets/centro-digital-imagotipo.png";
 import servimilLogo from "./assets/clients/servimil.png";
+import loginAmbientVideo from "./assets/login-ambient.mp4";
 import netflixLogo from "./assets/brands/netflix.svg";
 import disneyPlusLogo from "./assets/brands/disney-plus.svg";
 import hboMaxLogo from "./assets/brands/hbo-max.svg";
@@ -937,15 +938,35 @@ function AuthLanding({ authSubmit, busy }: {
   busy: boolean;
 }) {
   return (
-    <main className="auth-landing page-shell">
+    <main className="auth-landing">
+      <section className="auth-visual">
+        <video className="auth-video" autoPlay muted loop playsInline>
+          <source src={loginAmbientVideo} type="video/mp4" />
+        </video>
+        <div className="auth-video-scrim" />
       <section className="auth-copy">
         <div className="auth-brand-lockup">
           <img className="auth-brand-mark" src={centroDigitalLogo} alt="Imagotipo Centro Digital de Diseño" />
           <strong>CENTRO DIGITAL</strong>
         </div>
-        <h1>Centro Digital de Diseño <span>Administrador de cuentas</span></h1>
+        <span className="auth-overline">GESTIÓN DE CUENTAS PREMIUM</span>
+        <h1>Tu operación digital, <span>siempre en orden.</span></h1>
+        <p>Pedidos, entregas, pagos y facturación centralizados en un espacio privado y claro.</p>
+        <div className="auth-trust-row">
+          <span>Acceso protegido</span>
+          <span>Operación en tiempo real</span>
+        </div>
       </section>
-      <AuthCard authSubmit={authSubmit} busy={busy} />
+      </section>
+      <section className="auth-access-area">
+        <div className="auth-access-intro">
+          <span className="eyebrow">AREA PRIVADA</span>
+          <h2>Bienvenido de nuevo.</h2>
+          <p>Ingresa tu codigo de acceso para continuar.</p>
+        </div>
+        <AuthCard authSubmit={authSubmit} busy={busy} />
+        <p className="auth-help">Si necesitas ayuda con tu acceso, contacta al administrador de Centro Digital.</p>
+      </section>
     </main>
   );
 }
@@ -1014,10 +1035,12 @@ function AuthCard({ authSubmit, busy }: {
   busy: boolean;
 }) {
   return (
-    <aside className="glass-panel auth-panel">
+    <aside className="auth-panel">
       <form className="form-stack" onSubmit={authSubmit}>
-        <input name="access_code" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} placeholder="Codigo de 4 digitos" required />
-        <button className="btn-solid" disabled={busy}>{busy ? "Validando..." : "Ingresar"}</button>
+        <label className="auth-code-label" htmlFor="access_code">Codigo de acceso</label>
+        <input id="access_code" className="auth-code-input" name="access_code" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="one-time-code" placeholder="• • • •" aria-describedby="access-code-help" required />
+        <span id="access-code-help" className="auth-code-help">Usa el codigo de cuatro digitos asignado a tu perfil.</span>
+        <button className="btn-solid auth-submit" disabled={busy}>{busy ? "Validando acceso..." : "Entrar al ecosistema"}<span aria-hidden="true">→</span></button>
       </form>
     </aside>
   );
@@ -1794,7 +1817,7 @@ function downloadBlob(filename: string, mime: string, content: BlobPart) {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function foldPdfText(value: string) {
@@ -1897,9 +1920,9 @@ function createInvoicePdf(invoice: ClientInvoice, servimilUser?: User) {
     pdf += `${id} 0 obj\n${objects[id]}\nendobj\n`;
   }
   const xrefStart = new TextEncoder().encode(pdf).length;
-  pdf += `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
+  pdf += `xref\n0 ${objects.length}\n0000000000 65535 f\n`;
   for (let id = 1; id < objects.length; id += 1) {
-    pdf += `${String(offsets[id]).padStart(10, "0")} 00000 n \n`;
+    pdf += `${String(offsets[id]).padStart(10, "0")} 00000 n\n`;
   }
   pdf += `trailer\n<< /Size ${objects.length} /Root ${catalogId} 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
   return pdf;
@@ -1911,6 +1934,16 @@ function downloadInvoiceDoc(invoice: ClientInvoice, servimilUser?: User) {
 
 function downloadInvoicePdf(invoice: ClientInvoice, servimilUser?: User) {
   downloadBlob(invoiceFileName(invoice, "pdf"), "application/pdf", createInvoicePdf(invoice, servimilUser));
+}
+
+function printInvoice(invoice: ClientInvoice, servimilUser?: User) {
+  const popup = window.open("", "_blank");
+  if (!popup) return;
+  popup.opener = null;
+  popup.document.write(invoiceDocumentHtml(invoice, servimilUser));
+  popup.document.close();
+  popup.focus();
+  window.setTimeout(() => popup.print(), 250);
 }
 
 function OrderWorkCard({ order, deliver, busy }: {
@@ -2175,6 +2208,7 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
               <button type="button" onClick={() => generateServimilInvoice(selectedInvoice.period)}>Actualizar con cuentas nuevas</button>
               <button type="button" onClick={() => setPreviewOpen((open) => !open)}>{previewOpen ? "Ocultar vista previa" : "Vista previa"}</button>
               <button type="button" onClick={() => downloadInvoicePdf(selectedInvoice, servimilUser)}>Descargar PDF</button>
+              <button type="button" onClick={() => printInvoice(selectedInvoice, servimilUser)}>Imprimir / guardar PDF</button>
               <button type="button" onClick={() => downloadInvoiceDoc(selectedInvoice, servimilUser)}>Descargar DOC</button>
             </div>
             {previewOpen && <InvoiceDocumentPreview invoice={selectedInvoice} servimilUser={servimilUser} />}
@@ -2316,22 +2350,23 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   const [adminModule, setAdminModule] = useState<AdminModule>("dashboard");
   const [adminSidebarOpen, setAdminSidebarOpen] = useState(false);
   const [deliveredAccountSearch, setDeliveredAccountSearch] = useState("");
-  const adminModules: Array<{ id: AdminModule; label: string }> = [
-    { id: "dashboard", label: "Dashboard" },
-    { id: "orders", label: "Pedidos" },
-    { id: "accounts", label: "Cuentas entregadas" },
-    { id: "billing", label: "Facturacion" },
-    { id: "process", label: "Procesar cuentas" },
-    { id: "payouts", label: "Pagos al proveedor" },
-    { id: "products", label: "Productos" },
-    { id: "servimil", label: "Servimil" },
-    { id: "provider", label: "Proveedor" },
-    { id: "whatsapp", label: "WhatsApp admin" },
-    { id: "notifications", label: "Notificaciones" },
-    { id: "movements", label: "Movimientos" },
-    { id: "trash", label: "Papelera" },
-    { id: "logs", label: "Logs" }
+  const adminModules: Array<{ id: AdminModule; label: string; group: string }> = [
+    { id: "dashboard", label: "Resumen", group: "Vision general" },
+    { id: "orders", label: "Pedidos", group: "Operacion" },
+    { id: "process", label: "Procesar cuentas", group: "Operacion" },
+    { id: "accounts", label: "Cuentas entregadas", group: "Operacion" },
+    { id: "billing", label: "Facturacion", group: "Finanzas" },
+    { id: "payouts", label: "Pagos al proveedor", group: "Finanzas" },
+    { id: "products", label: "Catalogo", group: "Configuracion" },
+    { id: "servimil", label: "Cliente Servimil", group: "Configuracion" },
+    { id: "provider", label: "Proveedor", group: "Configuracion" },
+    { id: "whatsapp", label: "WhatsApp admin", group: "Canales" },
+    { id: "notifications", label: "Notificaciones", group: "Canales" },
+    { id: "movements", label: "Movimientos", group: "Auditoria" },
+    { id: "logs", label: "Registros tecnicos", group: "Auditoria" },
+    { id: "trash", label: "Papelera", group: "Auditoria" }
   ];
+  const adminModuleGroups = [...new Set(adminModules.map((module) => module.group))];
   const servimilUser = users.find((user) => user.name.toLowerCase().includes("servimil") || user.email === "cliente@centrodigital.local");
   const servimilOrders = orders.filter((order) => !servimilUser || order.user_id === servimilUser.id || order.user?.name?.toLowerCase().includes("servimil"));
   const servimilDeliveredAccounts = servimilOrders.flatMap((order) => order.items.flatMap((item) => item.delivered_accounts || []));
@@ -2478,15 +2513,20 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
           <strong>CENTRO DIGITAL</strong>
         </button>
         <nav className="operator-side-nav admin-tabs" aria-label="Modulos admin">
-          {adminModules.map((module) => (
-            <button
-              className={`${adminModule === module.id ? "active" : ""} ${module.id === "process" ? "primary-module" : ""}`.trim()}
-              key={module.id}
-              onClick={() => selectAdminModule(module.id)}
-              type="button"
-            >
-              {module.label}
-            </button>
+          {adminModuleGroups.map((group) => (
+            <div className="admin-nav-group" key={group}>
+              <span>{group}</span>
+              {adminModules.filter((module) => module.group === group).map((module) => (
+                <button
+                  className={`${adminModule === module.id ? "active" : ""} ${module.id === "process" ? "primary-module" : ""}`.trim()}
+                  key={module.id}
+                  onClick={() => selectAdminModule(module.id)}
+                  type="button"
+                >
+                  {module.label}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="client-profile-card">

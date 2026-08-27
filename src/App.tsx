@@ -1274,6 +1274,10 @@ type ClientDeliveryRow = {
 
 type DeliveredAccountDirectoryRow = {
   account: DeliveredAccount;
+  orderNumber: string;
+  productName: string;
+  orderedAt: string;
+  deliveredAt: string;
   email: string;
   password: string;
   profile: string;
@@ -1318,6 +1322,10 @@ function buildDeliveredAccountDirectory(orders: Order[]): DeliveredAccountDirect
     order.items.flatMap((item) =>
       (item.delivered_accounts || []).map((account) => ({
         account,
+        orderNumber: order.order_number,
+        productName: item.product_name,
+        orderedAt: order.created_at,
+        deliveredAt: account.delivered_at,
         email: account.delivered_email || "-",
         password: readablePassword(account.delivered_password),
         profile: account.profile_name || "-",
@@ -2735,7 +2743,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   const normalizedDeliveredAccountSearch = deliveredAccountSearch.trim().toLowerCase();
   const visibleDeliveredAccountDirectory = normalizedDeliveredAccountSearch
     ? deliveredAccountDirectory.filter((row) =>
-        [row.email, row.password, row.profile, row.pin].some((value) => value.toLowerCase().includes(normalizedDeliveredAccountSearch))
+        [row.orderNumber, row.productName, row.email, row.password, row.profile, row.pin].some((value) => value.toLowerCase().includes(normalizedDeliveredAccountSearch))
       )
     : deliveredAccountDirectory;
   const selectAdminModule = (module: AdminModule) => {
@@ -2964,7 +2972,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
                 <input
                   value={deliveredAccountSearch}
                   onChange={(event) => setDeliveredAccountSearch(event.target.value)}
-                  placeholder="Buscar por correo, contrasena, perfil o PIN"
+                  placeholder="Buscar por orden, servicio, correo, contrasena, perfil o PIN"
                 />
               </label>
               <span>{visibleDeliveredAccountDirectory.length} de {deliveredAccountDirectory.length} cuentas</span>
@@ -2973,6 +2981,10 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
               <table>
                 <thead>
                   <tr>
+                    <th>Orden</th>
+                    <th>Servicio</th>
+                    <th>Fecha del pedido</th>
+                    <th>Fecha de entrega</th>
                     <th>Correo</th>
                     <th>Contrasena</th>
                     <th>Perfil</th>
@@ -2982,6 +2994,10 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
                 <tbody>
                   {visibleDeliveredAccountDirectory.map((row) => (
                     <tr key={row.account.id}>
+                      <td><strong>{row.orderNumber}</strong></td>
+                      <td>{row.productName}</td>
+                      <td>{formatDateTime(row.orderedAt)}</td>
+                      <td>{formatDateTime(row.deliveredAt)}</td>
                       <td>{row.email}</td>
                       <td><span className="table-secret-value">{row.password}</span></td>
                       <td>{row.profile}</td>
@@ -2990,7 +3006,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
                   ))}
                   {visibleDeliveredAccountDirectory.length === 0 && (
                     <tr>
-                      <td colSpan={4}>No se encontraron cuentas entregadas.</td>
+                      <td colSpan={8}>No se encontraron cuentas entregadas.</td>
                     </tr>
                   )}
                 </tbody>

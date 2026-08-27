@@ -2647,12 +2647,26 @@ th {
 }
 
 .delivered-directory-table table {
-  min-width: 760px;
+  min-width: 1160px;
 }
 
 .delivered-directory-table th,
 .delivered-directory-table td {
-  width: 25%;
+  width: auto;
+}
+
+.delivered-directory-table th:nth-child(1),
+.delivered-directory-table td:nth-child(1) { width: 145px; }
+
+.delivered-directory-table th:nth-child(2),
+.delivered-directory-table td:nth-child(2) { width: 170px; }
+
+.delivered-directory-table th:nth-child(3),
+.delivered-directory-table td:nth-child(3),
+.delivered-directory-table th:nth-child(4),
+.delivered-directory-table td:nth-child(4) {
+  width: 150px;
+  white-space: nowrap;
 }
 
 .delivered-directory-table td {

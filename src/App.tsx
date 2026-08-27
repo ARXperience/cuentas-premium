@@ -1401,7 +1401,7 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
   };
 
   return (
-    <main className="client-dashboard">
+    <main className={sidebarOpen ? "client-dashboard sidebar-expanded" : "client-dashboard sidebar-collapsed"}>
       <aside className={sidebarOpen ? "client-sidebar open" : "client-sidebar"} aria-label="Panel cliente">
         <nav className="client-side-nav">
           <button className={clientTab === "orders" ? "active" : ""} onClick={() => selectTab("orders")}>Dashboard</button>
@@ -1420,7 +1420,7 @@ function ClientPanel({ user, orders, notifications, unreadNotifications, markNot
 
       <section className="client-workspace">
         <header className="client-topbar">
-          <button className="client-menu-button" onClick={() => setSidebarOpen((open) => !open)} aria-label="Abrir menu de cliente"><span /></button>
+          <button className="client-menu-button" onClick={() => setSidebarOpen((open) => !open)} aria-label={sidebarOpen ? "Retraer menu de cliente" : "Expandir menu de cliente"} aria-expanded={sidebarOpen}><span /></button>
           <label className="client-search">
             <span>Buscar</span>
             <input value={clientSearch} onChange={(event) => setClientSearch(event.target.value)} placeholder="Buscar pedidos, productos o cuentas..." />
@@ -1742,11 +1742,47 @@ function NotificationsPanel({ notifications, markNotificationRead, title, emptyM
   );
 }
 
-function ClientMetricCard({ tone, label, value, caption }: { tone: "blue" | "orange" | "green" | "purple"; label: string; value: string | number; caption: string }) {
+type MetricIconName = "orders" | "pending" | "delivered" | "notifications" | "accounts" | "money" | "provider" | "profit" | "whatsapp" | "warning" | "review" | "history";
+
+function metricIconForLabel(label: string): MetricIconName {
+  const normalized = label.toLowerCase();
+  if (normalized.includes("whatsapp") && normalized.includes("fallid")) return "warning";
+  if (normalized.includes("whatsapp")) return "whatsapp";
+  if (normalized.includes("notificacion") || normalized.includes("aviso")) return "notifications";
+  if (normalized.includes("pendiente") || normalized.includes("abierto")) return "pending";
+  if (normalized.includes("entregado") || normalized.includes("resuelto")) return "delivered";
+  if (normalized.includes("cuenta")) return "accounts";
+  if (normalized.includes("proveedor")) return "provider";
+  if (normalized.includes("utilidad")) return "profit";
+  if (normalized.includes("valor") || normalized.includes("vendido")) return "money";
+  if (normalized.includes("revision")) return "review";
+  if (normalized.includes("historial")) return "history";
+  return "orders";
+}
+
+function MetricCardIcon({ name }: { name: MetricIconName }) {
+  const paths: Record<MetricIconName, React.ReactNode> = {
+    orders: <><path d="M7 3.75h10a2 2 0 0 1 2 2v14.5H5V5.75a2 2 0 0 1 2-2Z" /><path d="M8.5 8h7M8.5 12h7M8.5 16h4" /></>,
+    pending: <><circle cx="12" cy="12" r="8.25" /><path d="M12 7.5V12l3 2" /></>,
+    delivered: <><circle cx="12" cy="12" r="8.25" /><path d="m8.5 12 2.2 2.2 4.8-5" /></>,
+    notifications: <><path d="M6.5 16.5h11l-1.3-2.1V10a4.2 4.2 0 0 0-8.4 0v4.4L6.5 16.5Z" /><path d="M10 19h4" /></>,
+    accounts: <><circle cx="12" cy="8.5" r="3" /><path d="M6.5 19v-1.5A4.5 4.5 0 0 1 11 13h2a4.5 4.5 0 0 1 4.5 4.5V19" /></>,
+    money: <><circle cx="12" cy="12" r="8.25" /><path d="M14.8 8.8c-.7-.8-1.7-1.2-2.8-1.2-1.7 0-3 .9-3 2.2 0 3.4 6 1.3 6 4.5 0 1.3-1.3 2.2-3 2.2-1.2 0-2.4-.5-3.1-1.4M12 5.8v12.4" /></>,
+    provider: <><path d="M3.5 6.5h10v9h-10zM13.5 9h3.3l2.2 2.7v3.8h-5.5z" /><circle cx="7" cy="17.5" r="1.5" /><circle cx="16.5" cy="17.5" r="1.5" /></>,
+    profit: <><path d="M4 17.5 9 12l3 2.8L20 6.5" /><path d="M15.5 6.5H20V11" /></>,
+    whatsapp: <><path d="M12 4a7.5 7.5 0 0 0-6.4 11.4L4.5 19.5l4.2-1.1A7.5 7.5 0 1 0 12 4Z" /><path d="M9 9.2c.8 2.4 2.4 4 4.8 4.8l1.2-1.2" /></>,
+    warning: <><path d="m12 4 8 15H4L12 4Z" /><path d="M12 9v4.5M12 16.5h.01" /></>,
+    review: <><circle cx="10.5" cy="10.5" r="5.5" /><path d="m14.5 14.5 4 4M10.5 8v5M8 10.5h5" /></>,
+    history: <><path d="M5.5 8A7.5 7.5 0 1 1 5 15" /><path d="M5.5 4.5V8h3.5M12 8v4l2.8 1.8" /></>
+  };
+  return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[name]}</svg>;
+}
+
+function ClientMetricCard({ tone, label, value, caption, icon }: { tone: "blue" | "orange" | "green" | "purple"; label: string; value: string | number; caption: string; icon?: MetricIconName }) {
   return (
     <article className={`client-metric-card ${tone}`}>
       <div className="client-metric-top">
-        <span className="client-metric-icon" aria-hidden="true" />
+        <span className="client-metric-icon"><MetricCardIcon name={icon || metricIconForLabel(label)} /></span>
         <div>
           <span>{label}</span>
           <strong>{value}</strong>
@@ -1799,7 +1835,7 @@ function ProviderPanel({ orders, deliveries, deliver, busy }: {
   };
 
   return (
-    <main className="operator-dashboard provider-operator-dashboard">
+    <main className={providerSidebarOpen ? "operator-dashboard provider-operator-dashboard sidebar-expanded" : "operator-dashboard provider-operator-dashboard sidebar-collapsed"}>
       <aside className={providerSidebarOpen ? "operator-sidebar open" : "operator-sidebar"} aria-label="Panel proveedor">
         <nav className="operator-side-nav">
           <button className={providerTab === "pending" ? "active" : ""} onClick={() => selectProviderTab("pending")}>Pendientes <strong>{activeOrders.length}</strong></button>
@@ -1816,7 +1852,7 @@ function ProviderPanel({ orders, deliveries, deliver, busy }: {
 
       <section className="operator-workspace">
         <header className="client-topbar">
-          <button className="client-menu-button" onClick={() => setProviderSidebarOpen((open) => !open)} aria-label="Abrir menu de proveedor"><span /></button>
+          <button className="client-menu-button" onClick={() => setProviderSidebarOpen((open) => !open)} aria-label={providerSidebarOpen ? "Retraer menu de proveedor" : "Expandir menu de proveedor"} aria-expanded={providerSidebarOpen}><span /></button>
           <label className="client-search">
             <span>Buscar</span>
             <input value={providerSearch} onChange={(event) => setProviderSearch(event.target.value)} placeholder="Buscar pedido, cliente o producto..." />
@@ -2791,7 +2827,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   );
 
   return (
-    <main className="operator-dashboard admin-operator-dashboard">
+    <main className={adminSidebarOpen ? "operator-dashboard admin-operator-dashboard sidebar-expanded" : "operator-dashboard admin-operator-dashboard sidebar-collapsed"}>
       <aside className={adminSidebarOpen ? "operator-sidebar open" : "operator-sidebar"} aria-label="Panel admin">
         <nav className="operator-side-nav admin-tabs" aria-label="Modulos admin">
           {adminModuleGroups.map((group) => (
@@ -2821,7 +2857,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
 
       <section className="operator-workspace">
         <header className="client-topbar admin-topbar">
-          <button className="client-menu-button" onClick={() => setAdminSidebarOpen((open) => !open)} aria-label="Abrir menu admin"><span /></button>
+          <button className="client-menu-button" onClick={() => setAdminSidebarOpen((open) => !open)} aria-label={adminSidebarOpen ? "Retraer menu admin" : "Expandir menu admin"} aria-expanded={adminSidebarOpen}><span /></button>
           <label className="client-search admin-module-jump">
             <span>Modulo</span>
             <select value={adminModule} onChange={(event) => selectAdminModule(event.target.value as AdminModule)}>

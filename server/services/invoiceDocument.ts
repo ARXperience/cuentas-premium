@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import type { PDFFont, PDFPage, RGB } from 'pdf-lib';
 
 type InvoiceLine = {
   description: string;
@@ -38,12 +39,33 @@ const STATUS_LABELS: Record<string, string> = {
   paid: 'Pagada',
   cancelled: 'Cancelada'
 };
-
 function statusLabel(status: string) {
   return STATUS_LABELS[status] || status;
 }
 
-// Logos en el arbol de fuentes; el server corre desde la raiz del proyecto (cwd).
+// Paleta de la web
+const C = {
+  blue: rgb(0.231, 0.510, 0.965), // #3b82f6
+  violet: rgb(0.545, 0.361, 0.965), // #8b5cf6
+  slate900: rgb(0.059, 0.090, 0.165), // #0f172a
+  slate600: rgb(0.278, 0.335, 0.412), // #475569
+  slate500: rgb(0.392, 0.451, 0.549), // #64748b
+  slate100: rgb(0.945, 0.961, 0.976), // #f1f5f9
+  slate50: rgb(0.973, 0.980, 0.988), // #f8fafc
+  border: rgb(0.886, 0.910, 0.941), // #e2e8f0
+  white: rgb(1, 1, 1),
+  green: rgb(0.016, 0.471, 0.341), // #047857
+  greenBg: rgb(0.86, 0.95, 0.91),
+  red: rgb(0.725, 0.110, 0.110), // #b91c1c
+  redBg: rgb(0.99, 0.90, 0.90)
+};
+
+function statusColors(status: string) {
+  if (status === 'sent' || status === 'paid') return { bg: C.greenBg, fg: C.green };
+  if (status === 'cancelled') return { bg: C.redBg, fg: C.red };
+  return { bg: C.slate100, fg: C.slate600 };
+}
+
 let logoCache: { centro: Buffer; servimil: Buffer } | null = null;
 function loadLogos() {
   if (logoCache) return logoCache;
@@ -59,22 +81,8 @@ function loadLogos() {
 function winAnsi(value: string) {
   return String(value ?? '').replace(/[^\x09\x0A\x0D\x20-\xFF]/g, ' ');
 }
-
-function wrapText(text: string, font: any, size: number, maxWidth: number): string[] {
-  const words = winAnsi(text).split(/\s+/).filter(Boolean);
-  const out: string[] = [];
-  let current = '';
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (font.widthOfTextAtSize(next, size) > maxWidth && current) {
-      out.push(current);
-      current = word;
-    } else {
-      current = next;
-    }
-  }
-  if (current) out.push(current);
-  return out.length ? out : [''];
+function lerp(a: RGB, b: RGB, t: number): RGB {
+  return rgb(a.red + (b.red - a.red) * t, a.green + (b.green - a.green) * t, a.blue + (b.blue - a.blue) * t);
 }
 
 export async function buildInvoicePdf(invoice: Invoice, opts: InvoiceDocOptions): Promise<Buffer> {
@@ -87,99 +95,117 @@ export async function buildInvoicePdf(invoice: Invoice, opts: InvoiceDocOptions)
   const centroImg = await pdf.embedPng(logos.centro);
   const servimilImg = await pdf.embedPng(logos.servimil);
 
-  const pageWidth = 595.28;
-  const pageHeight = 841.89;
-  const marginX = 40;
-  const contentW = pageWidth - marginX * 2;
-  const ink = rgb(0.06, 0.09, 0.16);
-  const muted = rgb(0.39, 0.45, 0.55);
-  const hairline = rgb(0.89, 0.91, 0.94);
-  const headBg = rgb(0.95, 0.96, 0.98);
+  const W = 595.28;
+  const H = 841.89;
+  const M = 42;
+  const contentW = W - M * 2;
 
-  const columns = [
-    { key: 'idx', label: '#', width: 20 },
-    { key: 'service', label: 'Servicio', width: 118 },
-    { key: 'email', label: 'Correo', width: 132 },
-    { key: 'profile', label: 'Perfil', width: 70 },
-    { key: 'pin', label: 'PIN', width: 38 },
-    { key: 'qty', label: 'Cant.', width: 30 },
-    { key: 'unit', label: 'Valor', width: 52 },
-    { key: 'total', label: 'Total', width: 55 }
-  ];
+  let page: PDFPage = pdf.addPage([W, H]);
 
-  let page = pdf.addPage([pageWidth, pageHeight]);
-  let y = pageHeight - marginX;
-
-  const draw = (text: string, x: number, yy: number, size: number, f = font, color = ink) => {
-    page.drawText(winAnsi(text), { x, y: yy, size, font: f, color });
+  const text = (s: string, x: number, y: number, size: number, f: PDFFont = font, color: RGB = C.slate900) =>
+    page.drawText(winAnsi(s), { x, y, size, font: f, color });
+  const widthOf = (s: string, size: number, f: PDFFont = font) => f.widthOfTextAtSize(winAnsi(s), size);
+  const rightText = (s: string, xRight: number, y: number, size: number, f: PDFFont = font, color: RGB = C.slate900) =>
+    text(s, xRight - widthOf(s, size, f), y, size, f, color);
+  const fit = (s: string, maxW: number, size: number, f: PDFFont = font) => {
+    let v = winAnsi(s);
+    if (f.widthOfTextAtSize(v, size) <= maxW) return v;
+    while (v.length > 1 && f.widthOfTextAtSize(v + '...', size) > maxW) v = v.slice(0, -1);
+    return v + '...';
   };
-
-  const fit = (text: string, maxWidth: number, size: number, f = font) => {
-    let value = winAnsi(text);
-    if (f.widthOfTextAtSize(value, size) <= maxWidth) return value;
-    while (value.length > 1 && f.widthOfTextAtSize(value + '...', size) > maxWidth) {
-      value = value.slice(0, -1);
+  const gradientBand = (x: number, y: number, w: number, h: number) => {
+    const steps = 80;
+    const sw = w / steps;
+    for (let i = 0; i < steps; i++) {
+      page.drawRectangle({ x: x + i * sw, y, width: sw + 0.5, height: h, color: lerp(C.blue, C.violet, i / (steps - 1)) });
     }
-    return value + '...';
+  };
+  const pill = (label: string, x: number, y: number, bg: RGB, fg: RGB) => {
+    const w = widthOf(label, 8, bold) + 16;
+    page.drawRectangle({ x, y: y - 3, width: w, height: 15, color: bg });
+    text(label, x + 8, y, 8, bold, fg);
+    return w;
   };
 
-  // Encabezado: ambos logos + nombres
-  const logoH = 34;
-  const centroDims = centroImg.scale(logoH / centroImg.height);
-  page.drawImage(centroImg, { x: marginX, y: y - logoH, width: centroDims.width, height: logoH });
-  draw('Centro Digital de Diseno', marginX + centroDims.width + 10, y - 14, 12, bold);
-  draw('Plataforma de gestion de activos', marginX + centroDims.width + 10, y - 28, 8, font, muted);
+  // ---- Encabezado ----
+  let y = H - M;
+  const logoH = 30;
+  const cDims = centroImg.scale(logoH / centroImg.height);
+  page.drawImage(centroImg, { x: M, y: y - logoH, width: cDims.width, height: logoH });
+  text('Centro Digital de Diseno', M + cDims.width + 10, y - 11, 12, bold);
+  text('Plataforma de gestion de activos', M + cDims.width + 10, y - 24, 8, font, C.slate500);
+  rightText('FACTURA', W - M, y - 16, 26, bold, C.blue);
+  rightText(`${invoice.invoice_number}  ·  Periodo ${invoice.period}`, W - M, y - 30, 9, font, C.slate500);
 
-  const servimilDims = servimilImg.scale(logoH / servimilImg.height);
-  const clientX = pageWidth - marginX - 150;
-  page.drawImage(servimilImg, { x: clientX, y: y - logoH, width: servimilDims.width, height: logoH });
-  draw(fit(clientName, 150 - servimilDims.width - 10, 12, bold), clientX + servimilDims.width + 8, y - 14, 12, bold);
-  draw('Cliente codigo 1111', clientX + servimilDims.width + 8, y - 28, 8, font, muted);
+  y -= logoH + 14;
+  gradientBand(M, y, contentW, 5);
+  y -= 22;
 
-  y -= logoH + 16;
-  page.drawLine({ start: { x: marginX, y }, end: { x: pageWidth - marginX, y }, thickness: 1.4, color: hairline });
-  y -= 26;
+  // ---- Recuadros De / Para ----
+  const boxH = 62;
+  const boxW = (contentW - 14) / 2;
+  const boxY = y - boxH;
+  // De
+  page.drawRectangle({ x: M, y: boxY, width: boxW, height: boxH, color: C.slate50, borderColor: C.border, borderWidth: 1 });
+  text('DE', M + 12, y - 14, 7, bold, C.slate500);
+  text('Centro Digital de Diseno', M + 12, y - 30, 11, bold);
+  text('Plataforma de gestion de activos', M + 12, y - 44, 8.5, font, C.slate500);
+  // Para
+  const px = M + boxW + 14;
+  page.drawRectangle({ x: px, y: boxY, width: boxW, height: boxH, color: C.white, borderColor: C.border, borderWidth: 1 });
+  text('FACTURAR A', px + 12, y - 14, 7, bold, C.slate500);
+  const sH = 22;
+  const sDims = servimilImg.scale(sH / servimilImg.height);
+  page.drawImage(servimilImg, { x: px + 12, y: y - 34, width: sDims.width, height: sH });
+  text(fit(clientName, boxW - sDims.width - 30, 11, bold), px + 12 + sDims.width + 8, y - 26, 11, bold);
+  text('Cliente codigo 1111', px + 12, y - 50, 8.5, font, C.slate500);
 
-  // Titulo
-  draw(fit(invoice.title || 'Factura mensual', contentW, 20, bold), marginX, y, 20, bold);
-  y -= 16;
-  draw(`${invoice.invoice_number} - Periodo ${invoice.period}`, marginX, y, 9, font, muted);
-  y -= 24;
+  y = boxY - 18;
 
-  // Meta (3 columnas x 2 filas)
-  const meta: Array<[string, string]> = [
-    ['Factura', invoice.invoice_number],
-    ['Emision', formatDateTime(invoice.issue_date)],
-    ['Vencimiento', formatDateTime(invoice.due_date)],
-    ['Estado', statusLabel(invoice.status)],
-    ['Cliente', clientName],
-    ['Total', money(invoice.total_amount)]
+  // ---- Chips de meta ----
+  const metaY = y;
+  const chip = (label: string, value: string, x: number, w: number) => {
+    page.drawRectangle({ x, y: metaY - 34, width: w, height: 34, color: C.white, borderColor: C.border, borderWidth: 1 });
+    text(label.toUpperCase(), x + 10, metaY - 13, 7, bold, C.slate500);
+    text(fit(value, w - 20, 10.5, bold), x + 10, metaY - 27, 10.5, bold);
+  };
+  const chipW = (contentW - 20) / 3;
+  chip('Emision', formatDateTime(invoice.issue_date), M, chipW);
+  chip('Vencimiento', formatDateTime(invoice.due_date), M + chipW + 10, chipW);
+  // Estado como chip con pill
+  const ex = M + (chipW + 10) * 2;
+  page.drawRectangle({ x: ex, y: metaY - 34, width: chipW, height: 34, color: C.white, borderColor: C.border, borderWidth: 1 });
+  text('ESTADO', ex + 10, metaY - 13, 7, bold, C.slate500);
+  const sc = statusColors(invoice.status);
+  pill(statusLabel(invoice.status).toUpperCase(), ex + 10, metaY - 28, sc.bg, sc.fg);
+
+  y = metaY - 34 - 22;
+
+  // ---- Tabla ----
+  const columns = [
+    { key: 'idx', label: '#', width: 18, align: 'l' as const },
+    { key: 'service', label: 'SERVICIO', width: 116, align: 'l' as const },
+    { key: 'email', label: 'CORREO', width: 132, align: 'l' as const },
+    { key: 'profile', label: 'PERFIL', width: 60, align: 'l' as const },
+    { key: 'pin', label: 'PIN', width: 33, align: 'l' as const },
+    { key: 'qty', label: 'CANT', width: 28, align: 'r' as const },
+    { key: 'unit', label: 'VALOR', width: 52, align: 'r' as const },
+    { key: 'total', label: 'TOTAL', width: 72, align: 'r' as const }
   ];
-  const cellW = contentW / 3;
-  const cellH = 34;
-  meta.forEach(([label, value], i) => {
-    const col = i % 3;
-    const row = Math.floor(i / 3);
-    const cx = marginX + col * cellW;
-    const cy = y - row * cellH;
-    page.drawRectangle({ x: cx, y: cy - cellH + 6, width: cellW - 8, height: cellH - 6, borderColor: hairline, borderWidth: 1, color: rgb(1, 1, 1) });
-    draw(label.toUpperCase(), cx + 8, cy - 10, 7, bold, muted);
-    draw(fit(value, cellW - 24, 10, bold), cx + 8, cy - 24, 10, bold);
-  });
-  y -= cellH * 2 + 18;
+  const rowH = 20;
+  const headH = 22;
 
-  // Cabecera de tabla
-  const rowH = 18;
-  const drawTableHead = () => {
-    page.drawRectangle({ x: marginX, y: y - rowH + 4, width: contentW, height: rowH, color: headBg });
-    let x = marginX;
+  const drawHead = () => {
+    gradientBand(M, y - headH, contentW, headH);
+    let x = M;
     for (const c of columns) {
-      draw(c.label, x + 4, y - rowH + 10, 8, bold, muted);
+      if (c.align === 'r') rightText(c.label, x + c.width - 6, y - headH + 7, 8, bold, C.white);
+      else text(c.label, x + 6, y - headH + 7, 8, bold, C.white);
       x += c.width;
     }
-    y -= rowH;
+    y -= headH;
   };
-  drawTableHead();
+  drawHead();
 
   const lines = invoice.lines || [];
   const cellValue = (line: InvoiceLine, key: string, index: number) => {
@@ -197,44 +223,62 @@ export async function buildInvoicePdf(invoice: Invoice, opts: InvoiceDocOptions)
   };
 
   if (!lines.length) {
+    page.drawRectangle({ x: M, y: y - rowH, width: contentW, height: rowH, color: C.slate50 });
+    text('No hay cuentas entregadas para este periodo.', M + 8, y - 13, 9, font, C.slate500);
     y -= rowH;
-    draw('No hay cuentas entregadas para este periodo.', marginX + 4, y + 4, 9, font, muted);
-    y -= 4;
   }
 
   lines.forEach((line, index) => {
-    if (y < marginX + 80) {
-      page = pdf.addPage([pageWidth, pageHeight]);
-      y = pageHeight - marginX;
-      drawTableHead();
+    if (y < M + 120) {
+      page = pdf.addPage([W, H]);
+      y = H - M;
+      drawHead();
     }
-    let x = marginX;
+    if (index % 2 === 1) page.drawRectangle({ x: M, y: y - rowH, width: contentW, height: rowH, color: C.slate50 });
+    let x = M;
     for (const c of columns) {
-      const numeric = c.key === 'qty' || c.key === 'unit' || c.key === 'total';
-      const value = fit(cellValue(line, c.key, index), c.width - 6, 8);
-      const tx = numeric ? x + c.width - 4 - font.widthOfTextAtSize(value, 8) : x + 4;
-      draw(value, tx, y - 12, 8);
+      const v = fit(cellValue(line, c.key, index), c.width - 8, 8.5);
+      if (c.align === 'r') rightText(v, x + c.width - 6, y - 13, 8.5);
+      else text(v, x + 6, y - 13, 8.5);
       x += c.width;
     }
+    page.drawLine({ start: { x: M, y: y - rowH }, end: { x: W - M, y: y - rowH }, thickness: 0.4, color: C.border });
     y -= rowH;
-    page.drawLine({ start: { x: marginX, y: y + 3 }, end: { x: pageWidth - marginX, y: y + 3 }, thickness: 0.5, color: hairline });
   });
 
-  // Total
-  y -= 16;
-  const totalStr = money(invoice.total_amount);
-  draw('Total a cobrar', pageWidth - marginX - 200, y, 12, bold);
-  draw(totalStr, pageWidth - marginX - bold.widthOfTextAtSize(winAnsi(totalStr), 14), y - 1, 14, bold);
+  // ---- Caja de total (estilo slate-900 de la web) ----
+  y -= 14;
+  const totH = 40;
+  const totW = 230;
+  const totX = W - M - totW;
+  if (y - totH < M + 40) { page = pdf.addPage([W, H]); y = H - M; }
+  page.drawRectangle({ x: totX, y: y - totH, width: totW, height: totH, color: C.slate900 });
+  text('TOTAL A COBRAR', totX + 16, y - 16, 8, bold, rgb(0.7, 0.75, 0.82));
+  rightText(money(invoice.total_amount), totX + totW - 16, y - 30, 16, bold, C.white);
+  y -= totH + 18;
 
+  // ---- Notas ----
   if (invoice.notes) {
-    y -= 28;
-    draw('Notas', marginX, y, 8, bold, muted);
-    y -= 12;
-    for (const chunk of wrapText(invoice.notes, font, 9, contentW)) {
-      draw(chunk, marginX, y, 9, font, muted);
-      y -= 12;
+    const notes = winAnsi(invoice.notes);
+    const wrapped: string[] = [];
+    let cur = '';
+    for (const word of notes.split(/\s+/).filter(Boolean)) {
+      const nx = cur ? `${cur} ${word}` : word;
+      if (widthOf(nx, 8.5) > contentW - 24 && cur) { wrapped.push(cur); cur = word; } else cur = nx;
     }
+    if (cur) wrapped.push(cur);
+    const nH = 22 + wrapped.length * 12;
+    page.drawRectangle({ x: M, y: y - nH, width: contentW, height: nH, color: C.slate50, borderColor: C.border, borderWidth: 1 });
+    text('NOTAS', M + 12, y - 15, 7, bold, C.slate500);
+    let ny = y - 30;
+    for (const l of wrapped) { text(l, M + 12, ny, 8.5, font, C.slate600); ny -= 12; }
+    y -= nH + 14;
   }
+
+  // ---- Pie ----
+  page.drawLine({ start: { x: M, y: M + 24 }, end: { x: W - M, y: M + 24 }, thickness: 0.5, color: C.border });
+  text('Gracias por su preferencia.', M, M + 12, 8, font, C.slate500);
+  rightText('Centro Digital de Diseno  ·  Servimil', W - M, M + 12, 8, font, C.slate500);
 
   const bytes = await pdf.save();
   return Buffer.from(bytes);

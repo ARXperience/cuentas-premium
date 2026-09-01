@@ -259,11 +259,6 @@ export type ClientInvoice = {
   notes?: string | null;
   auto_generated: boolean;
   admin_notified_at?: string | null;
-  scheduled_send_at?: string | null;
-  sent_at?: string | null;
-  sent_to?: string | null;
-  send_attempts?: number;
-  last_send_error?: string | null;
   created_at: string;
   updated_at: string;
   user?: User | null;

@@ -45,8 +45,6 @@ export async function sendSmtpEmail(message, config = getEnvironmentSmtpConfig()
         from: config.from,
         to: message.to,
         subject: message.subject,
-        text: message.text,
-        ...(message.html ? { html: message.html } : {}),
-        ...(message.attachments?.length ? { attachments: message.attachments } : {})
+        text: message.text
     });
 }

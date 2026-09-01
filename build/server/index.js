@@ -13,6 +13,7 @@ import { disconnectWhatsAppBridge, enableWhatsAppBridge, getWhatsAppBridgeQr, ge
 import { parseAccountMessage, serviceKeyFromText } from './services/inboundDeliveryParser/index.js';
 import { parseDeliveryMessage } from './services/deliveryParser/index.js';
 import { emailConfigured, sendAdminOrderNotificationEmail, sendSmtpEmail, verifySmtpConnection } from './services/email/index.js';
+import { buildInvoicePdf } from './services/invoiceDocument.js';
 const prisma = createPrismaClient();
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -2096,6 +2097,26 @@ app.patch('/api/admin/invoices/:id', sensitiveLimiter, requireAuth, requireRole(
         });
         await addMovement('invoice.updated', `Factura ${saved.invoice_number} actualizada. Total ${money(saved.total_amount)}.`, req.user.id);
         res.json({ invoice: await serializeInvoice(saved), message: 'Factura actualizada.' });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+app.get('/api/admin/invoices/:id/pdf', requireAuth, requireRole('admin'), async (req, res, next) => {
+    try {
+        const invoice = await prisma.clientInvoice.findUniqueOrThrow({
+            where: { id: paramId(req.params.id) },
+            include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } }
+        });
+        const pdf = await buildInvoicePdf(invoice, {
+            money,
+            formatDateTime: (value) => (value ? formatDateTimeCO(value) : '-'),
+            clientName: invoice.user?.name || 'Servimil'
+        });
+        const filename = `${invoice.invoice_number || 'factura'}-${invoice.period || ''}.pdf`.replace(/[^\w.-]+/g, '-');
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(pdf);
     }
     catch (error) {
         next(error);

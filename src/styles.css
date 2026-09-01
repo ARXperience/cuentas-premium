@@ -2844,6 +2844,38 @@ th {
   min-width: 150px;
 }
 
+.invoice-line-removed {
+  opacity: 0.5;
+}
+
+.invoice-line-removed input {
+  text-decoration: line-through;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.btn-remove-line,
+.btn-restore-line {
+  width: auto;
+  min-width: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.btn-remove-line {
+  background: rgba(239, 68, 68, 0.14);
+  color: #b91c1c;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.btn-restore-line {
+  background: rgba(59, 130, 246, 0.14);
+  color: #1d4ed8;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
 .invoice-preview-shell {
   min-width: 0;
   padding: 18px;

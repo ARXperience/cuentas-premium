@@ -563,7 +563,28 @@ async function notifyAdminInvoiceCreated(invoice: any) {
   });
 }
 
+// Serializa la generacion por (usuario, periodo). GET /invoices llama ensure en cada carga
+// y el scheduler corre al arrancar; sin este lock, dos llamadas concurrentes leen las mismas
+// entregas como "no facturadas" y crean lineas duplicadas (la orden se ve dos veces).
+// ponytail: lock en proceso; suficiente para un solo proceso. Para garantia multi-instancia
+// haria falta el indice unico (invoice_id, delivered_account_id), que requiere migracion.
+const invoiceGenLocks = new Map<string, Promise<any>>();
 async function generateClientInvoice(user: any, period = periodForBogotaDate(), actorId?: string, notifyAdmin = true) {
+  const key = `${user.id}:${period}`;
+  const prior = invoiceGenLocks.get(key);
+  const run = (async () => {
+    if (prior) await prior.catch(() => undefined);
+    return generateClientInvoiceInner(user, period, actorId, notifyAdmin);
+  })();
+  invoiceGenLocks.set(key, run);
+  try {
+    return await run;
+  } finally {
+    if (invoiceGenLocks.get(key) === run) invoiceGenLocks.delete(key);
+  }
+}
+
+async function generateClientInvoiceInner(user: any, period = periodForBogotaDate(), actorId?: string, notifyAdmin = true) {
   const { issueDate, dueDate } = billingScheduleForPeriod(period);
   const { start, end } = periodBounds(period);
   const existing = await prisma.clientInvoice.findUnique({

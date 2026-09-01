@@ -669,20 +669,24 @@ function App() {
   async function saveClientInvoice(invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const lines = invoice.lines.map((line, index) => ({
-      id: line.id,
-      description: String(form.get(`line_${line.id}_description`) || ""),
-      account_email: String(form.get(`line_${line.id}_account_email`) || ""),
-      profile_name: String(form.get(`line_${line.id}_profile_name`) || ""),
-      pin: String(form.get(`line_${line.id}_pin`) || ""),
-      quantity: Number(form.get(`line_${line.id}_quantity`) || 1),
-      unit_price: Number(form.get(`line_${line.id}_unit_price`) || 0),
-      total: Number(form.get(`line_${line.id}_total`) || 0),
-      ordered_at: String(form.get(`line_${line.id}_ordered_at`) || ""),
-      delivered_at: String(form.get(`line_${line.id}_delivered_at`) || ""),
-      notes: String(form.get(`line_${line.id}_notes`) || ""),
-      position: index
-    }));
+    const deletedRaw = String(form.get("deleted_line_ids") || "");
+    const deletedLineIds = deletedRaw ? deletedRaw.split(",").filter(Boolean) : [];
+    const lines = invoice.lines
+      .filter((line) => !deletedLineIds.includes(line.id))
+      .map((line, index) => ({
+        id: line.id,
+        description: String(form.get(`line_${line.id}_description`) || ""),
+        account_email: String(form.get(`line_${line.id}_account_email`) || ""),
+        profile_name: String(form.get(`line_${line.id}_profile_name`) || ""),
+        pin: String(form.get(`line_${line.id}_pin`) || ""),
+        quantity: Number(form.get(`line_${line.id}_quantity`) || 1),
+        unit_price: Number(form.get(`line_${line.id}_unit_price`) || 0),
+        total: Number(form.get(`line_${line.id}_total`) || 0),
+        ordered_at: String(form.get(`line_${line.id}_ordered_at`) || ""),
+        delivered_at: String(form.get(`line_${line.id}_delivered_at`) || ""),
+        notes: String(form.get(`line_${line.id}_notes`) || ""),
+        position: index
+      }));
     const data = await request<{ invoice: ClientInvoice; message: string }>(`/api/admin/invoices/${invoice.id}`, {
       method: "PATCH",
       body: JSON.stringify({
@@ -691,7 +695,8 @@ function App() {
         issue_date: form.get("issue_date"),
         due_date: form.get("due_date"),
         notes: form.get("notes"),
-        lines
+        lines,
+        deleted_line_ids: deletedLineIds
       })
     });
     setClientInvoices((current) => current.map((item) => item.id === data.invoice.id ? data.invoice : item));
@@ -2319,12 +2324,20 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
   const [period, setPeriod] = useState(currentInvoicePeriod());
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(invoices[0]?.id || null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [removedLineIds, setRemovedLineIds] = useState<string[]>([]);
   const selectedInvoice = invoices.find((invoice) => invoice.id === selectedInvoiceId) || invoices[0] || null;
   const totalPending = invoices.filter((invoice) => invoice.status !== "paid" && invoice.status !== "cancelled").reduce((sum, invoice) => sum + invoice.total_amount, 0);
 
   useEffect(() => {
     if (!selectedInvoiceId && invoices[0]) setSelectedInvoiceId(invoices[0].id);
   }, [invoices, selectedInvoiceId]);
+
+  useEffect(() => {
+    setRemovedLineIds([]);
+  }, [selectedInvoiceId]);
+
+  const toggleRemovedLine = (lineId: string) =>
+    setRemovedLineIds((ids) => (ids.includes(lineId) ? ids.filter((id) => id !== lineId) : [...ids, lineId]));
 
   return (
     <section className="glass-panel admin-module-panel billing-panel">
@@ -2401,8 +2414,8 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
 
             <div className="invoice-total-strip">
               <span>Total factura</span>
-              <strong>{money.format(selectedInvoice.total_amount)}</strong>
-              <small>Las lineas se pueden editar antes de guardar.</small>
+              <strong>{money.format(selectedInvoice.lines.filter((line) => !removedLineIds.includes(line.id)).reduce((sum, line) => sum + line.total, 0))}</strong>
+              <small>{removedLineIds.length ? `${removedLineIds.length} linea(s) marcada(s) para eliminar. Guarda para aplicar.` : "Las lineas se pueden editar o quitar antes de guardar."}</small>
             </div>
 
             <div className="table-scroll invoice-lines-table">
@@ -2420,30 +2433,40 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
                     <th>Valor</th>
                     <th>Total</th>
                     <th>Notas</th>
+                    <th>Quitar</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedInvoice.lines.map((line) => (
-                    <tr key={line.id}>
+                  {selectedInvoice.lines.map((line) => {
+                    const removed = removedLineIds.includes(line.id);
+                    return (
+                    <tr key={line.id} className={removed ? "invoice-line-removed" : undefined}>
                       <td>{orderLabel(line.order)}</td>
-                      <td><input name={`line_${line.id}_description`} defaultValue={line.description} /></td>
-                      <td><input name={`line_${line.id}_account_email`} defaultValue={line.account_email || ""} /></td>
-                      <td><input name={`line_${line.id}_profile_name`} defaultValue={line.profile_name || ""} /></td>
-                      <td><input name={`line_${line.id}_pin`} defaultValue={line.pin || ""} /></td>
-                      <td><input name={`line_${line.id}_ordered_at`} type="datetime-local" defaultValue={dateTimeInputValue(line.ordered_at)} /></td>
-                      <td><input name={`line_${line.id}_delivered_at`} type="datetime-local" defaultValue={dateTimeInputValue(line.delivered_at)} /></td>
-                      <td><input name={`line_${line.id}_quantity`} type="number" min="1" defaultValue={line.quantity} /></td>
-                      <td><input name={`line_${line.id}_unit_price`} type="number" min="0" defaultValue={line.unit_price} /></td>
-                      <td><input name={`line_${line.id}_total`} type="number" min="0" defaultValue={line.total} /></td>
-                      <td><input name={`line_${line.id}_notes`} defaultValue={line.notes || ""} /></td>
+                      <td><input name={`line_${line.id}_description`} defaultValue={line.description} disabled={removed} /></td>
+                      <td><input name={`line_${line.id}_account_email`} defaultValue={line.account_email || ""} disabled={removed} /></td>
+                      <td><input name={`line_${line.id}_profile_name`} defaultValue={line.profile_name || ""} disabled={removed} /></td>
+                      <td><input name={`line_${line.id}_pin`} defaultValue={line.pin || ""} disabled={removed} /></td>
+                      <td><input name={`line_${line.id}_ordered_at`} type="datetime-local" defaultValue={dateTimeInputValue(line.ordered_at)} disabled={removed} /></td>
+                      <td><input name={`line_${line.id}_delivered_at`} type="datetime-local" defaultValue={dateTimeInputValue(line.delivered_at)} disabled={removed} /></td>
+                      <td><input name={`line_${line.id}_quantity`} type="number" min="1" defaultValue={line.quantity} disabled={removed} /></td>
+                      <td><input name={`line_${line.id}_unit_price`} type="number" min="0" defaultValue={line.unit_price} disabled={removed} /></td>
+                      <td><input name={`line_${line.id}_total`} type="number" min="0" defaultValue={line.total} disabled={removed} /></td>
+                      <td><input name={`line_${line.id}_notes`} defaultValue={line.notes || ""} disabled={removed} /></td>
+                      <td>
+                        <button type="button" className={removed ? "btn-restore-line" : "btn-remove-line"} onClick={() => toggleRemovedLine(line.id)}>
+                          {removed ? "Restaurar" : "Quitar"}
+                        </button>
+                      </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {selectedInvoice.lines.length === 0 && (
-                    <tr><td colSpan={11}>No hay cuentas entregadas para este periodo.</td></tr>
+                    <tr><td colSpan={12}>No hay cuentas entregadas para este periodo.</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
+            <input type="hidden" name="deleted_line_ids" value={removedLineIds.join(",")} />
             <div className="status-actions invoice-actions">
               <button className="btn-solid">Guardar factura</button>
               <button type="button" onClick={() => generateServimilInvoice(selectedInvoice.period)}>Actualizar con cuentas nuevas</button>

@@ -690,6 +690,7 @@ function App() {
         status: form.get("status"),
         issue_date: form.get("issue_date"),
         due_date: form.get("due_date"),
+        scheduled_send_at: form.get("scheduled_send_at") || null,
         notes: form.get("notes"),
         lines
       })
@@ -697,6 +698,30 @@ function App() {
     setClientInvoices((current) => current.map((item) => item.id === data.invoice.id ? data.invoice : item));
     setNotice(data.message || "Factura actualizada.");
     await refreshAdminData();
+  }
+
+  async function handleDownloadInvoicePdf(invoice: ClientInvoice) {
+    try {
+      const response = await fetch(`${API_URL}/api/admin/invoices/${invoice.id}/pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (!response.ok) throw new Error("No se pudo generar el PDF.");
+      downloadBlob(invoiceFileName(invoice, "pdf"), "application/pdf", await response.blob());
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "No se pudo descargar el PDF.");
+    }
+  }
+
+  async function sendInvoiceNow(invoice: ClientInvoice) {
+    if (!window.confirm(`Enviar la factura ${invoice.invoice_number} al correo del cliente ahora?`)) return;
+    try {
+      const data = await request<{ invoice: ClientInvoice; message: string }>(`/api/admin/invoices/${invoice.id}/send`, { method: "POST" });
+      setClientInvoices((current) => current.map((item) => item.id === data.invoice.id ? data.invoice : item));
+      setNotice(data.message || "Factura enviada.");
+      await refreshAdminData();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "No se pudo enviar la factura.");
+    }
   }
 
   async function saveProduct(event: FormEvent<HTMLFormElement>, product?: Product) {
@@ -978,7 +1003,7 @@ function App() {
       {view === "cart" && user?.role === "client" && <CartPage cart={cart} total={cartTotal} changeQuantity={changeQuantity} removeFromCart={removeFromCart} checkout={checkout} busy={busy} onContinueShopping={() => setView("catalog")} />}
       {view === "client" && user?.role === "client" && <ClientPanel user={user} orders={orders} notifications={notifications} unreadNotifications={unreadNotifications} markNotificationRead={markNotificationRead} cancelOrder={cancelClientOrder} submitAccountReport={submitAccountReport} busy={busy} copy={copy} goToCatalog={() => setView("catalog")} />}
       {view === "provider" && user?.role === "provider" && <ProviderPanel orders={orders} deliveries={providerDeliveries} deliver={deliver} busy={busy} />}
-      {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} trashedOrders={trashedOrders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} invoices={clientInvoices} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} notifications={notifications} unreadNotifications={unreadNotifications} adminLogs={adminLogs} accountReports={accountReports} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} cancelPayout={cancelPayout} generateServimilInvoice={generateServimilInvoice} saveClientInvoice={saveClientInvoice} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} saveDeliveredAccountEdit={saveDeliveredAccountEdit} updateAccountReport={updateAccountReport} markNotificationRead={markNotificationRead} deleteOrder={deleteAdminOrder} copy={copy} />}
+      {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} trashedOrders={trashedOrders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} invoices={clientInvoices} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} notifications={notifications} unreadNotifications={unreadNotifications} adminLogs={adminLogs} accountReports={accountReports} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} cancelPayout={cancelPayout} generateServimilInvoice={generateServimilInvoice} saveClientInvoice={saveClientInvoice} downloadInvoicePdf={handleDownloadInvoicePdf} sendInvoiceNow={sendInvoiceNow} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} saveDeliveredAccountEdit={saveDeliveredAccountEdit} updateAccountReport={updateAccountReport} markNotificationRead={markNotificationRead} deleteOrder={deleteAdminOrder} copy={copy} />}
 
       <AddedProductModal
         product={selectedAddedProduct}
@@ -2310,11 +2335,13 @@ function InvoiceDocumentPreview({ invoice, servimilUser }: { invoice: ClientInvo
   );
 }
 
-function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, saveClientInvoice }: {
+function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, saveClientInvoice, downloadInvoicePdf, sendInvoiceNow }: {
   invoices: ClientInvoice[];
   servimilUser?: User;
   generateServimilInvoice: (period?: string) => void;
   saveClientInvoice: (invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) => void;
+  downloadInvoicePdf: (invoice: ClientInvoice) => void;
+  sendInvoiceNow: (invoice: ClientInvoice) => void;
 }) {
   const [period, setPeriod] = useState(currentInvoicePeriod());
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(invoices[0]?.id || null);
@@ -2393,10 +2420,27 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
                 Vencimiento
                 <input name="due_date" type="datetime-local" defaultValue={dateTimeInputValue(selectedInvoice.due_date)} />
               </label>
+              <label>
+                Programar envio
+                <input name="scheduled_send_at" type="datetime-local" defaultValue={dateTimeInputValue(selectedInvoice.scheduled_send_at)} />
+              </label>
               <label className="invoice-notes-field">
                 Notas
                 <textarea name="notes" defaultValue={selectedInvoice.notes || ""} />
               </label>
+            </div>
+
+            <div className="invoice-send-strip">
+              {selectedInvoice.sent_at ? (
+                <span className="invoice-sent-badge">Enviada el {formatDateTime(selectedInvoice.sent_at)}{selectedInvoice.sent_to ? ` a ${selectedInvoice.sent_to}` : ""}</span>
+              ) : selectedInvoice.scheduled_send_at ? (
+                <span className="invoice-scheduled-badge">Programada para {formatDateTime(selectedInvoice.scheduled_send_at)}</span>
+              ) : (
+                <span className="invoice-scheduled-badge">Sin envio programado. Guarda una fecha o usa "Enviar ahora".</span>
+              )}
+              {selectedInvoice.last_send_error && !selectedInvoice.sent_at && (
+                <span className="invoice-send-error">Ultimo error de envio: {selectedInvoice.last_send_error}</span>
+              )}
             </div>
 
             <div className="invoice-total-strip">
@@ -2446,9 +2490,10 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
             </div>
             <div className="status-actions invoice-actions">
               <button className="btn-solid">Guardar factura</button>
+              <button type="button" className="btn-solid" onClick={() => sendInvoiceNow(selectedInvoice)}>Enviar ahora</button>
               <button type="button" onClick={() => generateServimilInvoice(selectedInvoice.period)}>Actualizar con cuentas nuevas</button>
               <button type="button" onClick={() => setPreviewOpen((open) => !open)}>{previewOpen ? "Ocultar vista previa" : "Vista previa"}</button>
-              <button type="button" onClick={() => downloadInvoicePdf(selectedInvoice, servimilUser)}>Descargar PDF</button>
+              <button type="button" onClick={() => downloadInvoicePdf(selectedInvoice)}>Descargar PDF</button>
               <button type="button" onClick={() => printInvoice(selectedInvoice, servimilUser)}>Imprimir / guardar PDF</button>
               <button type="button" onClick={() => downloadInvoiceDoc(selectedInvoice, servimilUser)}>Descargar DOC</button>
             </div>
@@ -2545,7 +2590,7 @@ function AdminAccountReports({ reports, updateReport }: { reports: AccountReport
   );
 }
 
-function AdminPanel({ dashboard, users, products, orders, trashedOrders, pendingDeliveryOrders, pendingPayouts, invoices, providerConfig, whatsappStatus, whatsappQr, emailStatus, notifications, unreadNotifications, adminLogs, accountReports, savingProductId, saveProduct, saveProviderConfig, saveAdminNotificationConfig, saveEmailConfig, testAdminEmail, connectWhatsApp, retryWhatsAppFailed, disconnectWhatsApp, testAdminWhatsApp, markReceiptSent, cancelPayout, generateServimilInvoice, saveClientInvoice, previewDeliveryMessage, approveParsedDelivery, saveDeliveryDraft, updateStatus, saveOrderEdit, saveDeliveredAccountEdit, updateAccountReport, markNotificationRead, deleteOrder, copy }: {
+function AdminPanel({ dashboard, users, products, orders, trashedOrders, pendingDeliveryOrders, pendingPayouts, invoices, providerConfig, whatsappStatus, whatsappQr, emailStatus, notifications, unreadNotifications, adminLogs, accountReports, savingProductId, saveProduct, saveProviderConfig, saveAdminNotificationConfig, saveEmailConfig, testAdminEmail, connectWhatsApp, retryWhatsAppFailed, disconnectWhatsApp, testAdminWhatsApp, markReceiptSent, cancelPayout, generateServimilInvoice, saveClientInvoice, downloadInvoicePdf, sendInvoiceNow, previewDeliveryMessage, approveParsedDelivery, saveDeliveryDraft, updateStatus, saveOrderEdit, saveDeliveredAccountEdit, updateAccountReport, markNotificationRead, deleteOrder, copy }: {
   dashboard: Dashboard | null;
   users: User[];
   products: Product[];
@@ -2576,6 +2621,8 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   cancelPayout: (payout: ProviderPayout) => void;
   generateServimilInvoice: (period?: string) => void;
   saveClientInvoice: (invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) => void;
+  downloadInvoicePdf: (invoice: ClientInvoice) => void;
+  sendInvoiceNow: (invoice: ClientInvoice) => void;
   previewDeliveryMessage: (orderId: string | undefined, rawText: string) => Promise<{ preview: DeliveryParserPreview; order: Order }>;
   approveParsedDelivery: (orderId: string, rawText: string, items: DeliveryParserItem[]) => Promise<void>;
   saveDeliveryDraft: (orderId: string, rawText: string, preview: DeliveryParserPreview) => Promise<void>;
@@ -3021,6 +3068,8 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
             servimilUser={servimilUser}
             generateServimilInvoice={generateServimilInvoice}
             saveClientInvoice={saveClientInvoice}
+            downloadInvoicePdf={downloadInvoicePdf}
+            sendInvoiceNow={sendInvoiceNow}
           />
         )}
         {adminModule === "process" && processAccountsModule}

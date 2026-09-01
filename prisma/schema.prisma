@@ -376,6 +376,11 @@ model ClientInvoice {
   notes             String?
   auto_generated    Boolean             @default(true)
   admin_notified_at DateTime?
+  scheduled_send_at DateTime?
+  sent_at           DateTime?
+  sent_to           String?
+  send_attempts     Int                 @default(0)
+  last_send_error   String?
   created_by        String?
   created_at        DateTime            @default(now())
   updated_at        DateTime            @updatedAt
@@ -387,6 +392,8 @@ model ClientInvoice {
   @@index([period])
   @@index([status])
   @@index([due_date])
+  @@index([scheduled_send_at])
+  @@index([sent_at])
   @@map("client_invoices")
 }
 
@@ -411,6 +418,7 @@ model ClientInvoiceLine {
   order                Order?            @relation(fields: [order_id], references: [id], onDelete: SetNull)
   deliveredAccount     DeliveredAccount? @relation(fields: [delivered_account_id], references: [id], onDelete: SetNull)
 
+  @@unique([invoice_id, delivered_account_id], map: "client_invoice_lines_invoice_delivery_key")
   @@index([invoice_id])
   @@index([order_id])
   @@index([delivered_account_id])

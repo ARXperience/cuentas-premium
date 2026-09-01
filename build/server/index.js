@@ -13,6 +13,7 @@ import { disconnectWhatsAppBridge, enableWhatsAppBridge, getWhatsAppBridgeQr, ge
 import { parseAccountMessage, serviceKeyFromText } from './services/inboundDeliveryParser/index.js';
 import { parseDeliveryMessage } from './services/deliveryParser/index.js';
 import { emailConfigured, sendAdminOrderNotificationEmail, sendSmtpEmail, verifySmtpConnection } from './services/email/index.js';
+import { buildInvoicePdf, buildInvoiceEmail } from './services/invoiceDocument.js';
 const prisma = createPrismaClient();
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -450,6 +451,11 @@ async function serializeInvoice(invoice) {
         notes: invoice.notes,
         auto_generated: invoice.auto_generated,
         admin_notified_at: invoice.admin_notified_at,
+        scheduled_send_at: invoice.scheduled_send_at,
+        sent_at: invoice.sent_at,
+        sent_to: invoice.sent_to,
+        send_attempts: invoice.send_attempts,
+        last_send_error: invoice.last_send_error,
         created_at: invoice.created_at,
         updated_at: invoice.updated_at,
         user: safeUser(invoice.user, true),
@@ -495,13 +501,57 @@ async function notifyAdminInvoiceCreated(invoice) {
         data: { admin_notified_at: new Date() }
     });
 }
+// Serializa la generacion por (usuario, periodo). Sin esto, dos llamadas concurrentes
+// (GET /invoices llama ensure en cada carga, el scheduler corre al arrancar, varias pestanas)
+// leen las mismas entregas como "no facturadas" y crean lineas duplicadas.
+// ponytail: lock en proceso; el indice unico (invoice_id, delivered_account_id) es la garantia
+// a nivel de BD si algun dia corre en varias instancias.
+const invoiceGenLocks = new Map();
 async function generateClientInvoice(user, period = periodForBogotaDate(), actorId, notifyAdmin = true) {
+    const key = `${user.id}:${period}`;
+    const prior = invoiceGenLocks.get(key);
+    const run = (async () => {
+        if (prior)
+            await prior.catch(() => undefined);
+        return generateClientInvoiceInner(user, period, actorId, notifyAdmin);
+    })();
+    invoiceGenLocks.set(key, run);
+    try {
+        return await run;
+    }
+    catch (error) {
+        if (error?.code === 'P2002') {
+            const fallback = await prisma.clientInvoice.findUnique({
+                where: { user_id_period: { user_id: user.id, period } },
+                include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } }
+            });
+            if (fallback)
+                return fallback;
+        }
+        throw error;
+    }
+    finally {
+        if (invoiceGenLocks.get(key) === run)
+            invoiceGenLocks.delete(key);
+    }
+}
+async function generateClientInvoiceInner(user, period = periodForBogotaDate(), actorId, notifyAdmin = true) {
     const { issueDate, dueDate } = billingScheduleForPeriod(period);
     const { start, end } = periodBounds(period);
     const existing = await prisma.clientInvoice.findUnique({
         where: { user_id_period: { user_id: user.id, period } },
         include: { user: true, lines: true }
     });
+    // Ciclo por mes calendario: una factura enviada/pagada/cancelada se congela; las cuentas
+    // nuevas cuentan para la factura del mes siguiente. No se le agregan mas lineas.
+    // ponytail: tope del ciclo por mes calendario -- una entrega del MISMO mes posterior al envio
+    // no se re-factura; si se necesita re-cobrar en el mismo mes, cambiar a ciclo por fecha de envio.
+    if (existing && ['sent', 'paid', 'cancelled'].includes(existing.status)) {
+        return prisma.clientInvoice.findUniqueOrThrow({
+            where: { id: existing.id },
+            include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } }
+        });
+    }
     const billedDeliveryIds = new Set((existing?.lines || []).map((line) => line.delivered_account_id).filter(Boolean));
     const deliveries = await prisma.deliveredAccount.findMany({
         where: {
@@ -553,6 +603,7 @@ async function generateClientInvoice(user, period = periodForBogotaDate(), actor
                     status: 'draft',
                     issue_date: issueDate,
                     due_date: dueDate,
+                    scheduled_send_at: issueDate,
                     notes: 'Factura generada automaticamente con las cuentas entregadas del periodo.',
                     auto_generated: true,
                     created_by: actorId || null,
@@ -598,6 +649,86 @@ function startMonthlyInvoiceScheduler() {
     };
     run();
     setInterval(run, Number(process.env.BILLING_SCHEDULER_INTERVAL_MINUTES || 360) * 60 * 1000);
+}
+const invoiceDocOptions = (invoice) => ({
+    money,
+    formatDateTime: (value) => (value ? formatDateTimeCO(value) : '-'),
+    clientName: invoice.user?.name || 'Servimil'
+});
+async function sendClientInvoiceById(invoiceId, actorId) {
+    const invoice = await prisma.clientInvoice.findUniqueOrThrow({
+        where: { id: invoiceId },
+        include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } }
+    });
+    const to = invoice.user?.email;
+    if (!to)
+        throw new Error('El cliente de la factura no tiene correo configurado.');
+    if (!emailConfigured())
+        throw new Error('SMTP no configurado. Configura el correo antes de enviar facturas.');
+    try {
+        const opts = invoiceDocOptions(invoice);
+        const pdf = await buildInvoicePdf(invoice, opts);
+        const email = buildInvoiceEmail(invoice, { ...opts, pdf });
+        await sendSmtpEmail({ to, subject: email.subject, text: email.text, html: email.html, attachments: email.attachments });
+        const updated = await prisma.clientInvoice.update({
+            where: { id: invoice.id },
+            data: {
+                status: 'sent',
+                sent_at: new Date(),
+                sent_to: to,
+                scheduled_send_at: null,
+                last_send_error: null,
+                send_attempts: { increment: 1 }
+            },
+            include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } }
+        });
+        await addMovement('invoice.sent', `Factura ${updated.invoice_number} enviada a ${to}. Total ${money(updated.total_amount)}.`, actorId, undefined);
+        await createRoleNotifications('admin', null, 'invoice.sent', 'Factura enviada', `Factura ${updated.invoice_number} enviada a ${to}.`);
+        return updated;
+    }
+    catch (error) {
+        await prisma.clientInvoice.update({
+            where: { id: invoice.id },
+            data: {
+                send_attempts: { increment: 1 },
+                last_send_error: error instanceof Error ? error.message.slice(0, 500) : 'Error desconocido'
+            }
+        }).catch(() => undefined);
+        throw error;
+    }
+}
+function startInvoiceSendScheduler() {
+    let running = false;
+    const run = async () => {
+        if (running)
+            return;
+        running = true;
+        try {
+            const due = await prisma.clientInvoice.findMany({
+                where: {
+                    sent_at: null,
+                    scheduled_send_at: { not: null, lte: new Date() },
+                    status: { notIn: ['paid', 'cancelled'] },
+                    send_attempts: { lt: Number(process.env.INVOICE_SEND_MAX_ATTEMPTS || 5) }
+                },
+                select: { id: true },
+                take: 10
+            });
+            for (const { id } of due) {
+                await sendClientInvoiceById(id).catch((error) => {
+                    console.error('[billing:auto-send]', error instanceof Error ? error.message : error);
+                });
+            }
+        }
+        catch (error) {
+            console.error('[billing:auto-send]', error instanceof Error ? error.message : error);
+        }
+        finally {
+            running = false;
+        }
+    };
+    void run();
+    setInterval(() => void run(), Number(process.env.INVOICE_SEND_SCHEDULER_INTERVAL_SECONDS || 60) * 1000);
 }
 function normalizePhone(value) {
     return value.replace(/[^\d]/g, '');
@@ -2007,6 +2138,7 @@ const invoiceUpdateSchema = z.object({
     status: z.enum(['draft', 'sent', 'paid', 'cancelled']).optional(),
     issue_date: z.string().optional(),
     due_date: z.string().optional(),
+    scheduled_send_at: z.string().optional().nullable(),
     notes: z.string().trim().optional().nullable(),
     lines: z.array(invoiceLineInputSchema).optional(),
     deleted_line_ids: z.array(z.string()).optional()
@@ -2065,6 +2197,9 @@ app.patch('/api/admin/invoices/:id', sensitiveLimiter, requireAuth, requireRole(
                     status: input.status ?? invoice.status,
                     issue_date: parseMaybeDate(input.issue_date) || invoice.issue_date,
                     due_date: parseMaybeDate(input.due_date) || invoice.due_date,
+                    ...(input.scheduled_send_at !== undefined
+                        ? { scheduled_send_at: parseMaybeDate(input.scheduled_send_at) }
+                        : {}),
                     notes: input.notes ?? invoice.notes,
                     total_amount: totalAmount
                 },
@@ -2073,6 +2208,31 @@ app.patch('/api/admin/invoices/:id', sensitiveLimiter, requireAuth, requireRole(
         });
         await addMovement('invoice.updated', `Factura ${saved.invoice_number} actualizada. Total ${money(saved.total_amount)}.`, req.user.id);
         res.json({ invoice: await serializeInvoice(saved), message: 'Factura actualizada.' });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+app.get('/api/admin/invoices/:id/pdf', requireAuth, requireRole('admin'), async (req, res, next) => {
+    try {
+        const invoice = await prisma.clientInvoice.findUniqueOrThrow({
+            where: { id: paramId(req.params.id) },
+            include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } }
+        });
+        const pdf = await buildInvoicePdf(invoice, invoiceDocOptions(invoice));
+        const filename = `${invoice.invoice_number || 'factura'}-${invoice.period || ''}.pdf`.replace(/[^\w.-]+/g, '-');
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(pdf);
+    }
+    catch (error) {
+        next(error);
+    }
+});
+app.post('/api/admin/invoices/:id/send', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
+    try {
+        const invoice = await sendClientInvoiceById(paramId(req.params.id), req.user.id);
+        res.json({ invoice: await serializeInvoice(invoice), message: `Factura enviada a ${invoice.sent_to}.` });
     }
     catch (error) {
         next(error);
@@ -2952,6 +3112,7 @@ app.listen(port, '0.0.0.0', () => {
     console.log(`API lista en http://localhost:${port}`);
     startWhatsAppBridgeAlertMonitor();
     startMonthlyInvoiceScheduler();
+    startInvoiceSendScheduler();
     void (async () => {
         const adminEnabled = await getSettingValue('whatsapp_bridge_admin_enabled');
         const autostartFlag = process.env.WHATSAPP_BRIDGE_AUTOSTART?.trim().toLowerCase();

@@ -53,6 +53,8 @@ export async function sendSmtpEmail(message: EmailMessage, config = getEnvironme
     from: config.from,
     to: message.to,
     subject: message.subject,
-    text: message.text
+    text: message.text,
+    ...(message.html ? { html: message.html } : {}),
+    ...(message.attachments?.length ? { attachments: message.attachments } : {})
   });
 }

@@ -232,9 +232,21 @@ function App() {
   const [view, setView] = useState<View>(token ? "auth" : "auth");
   const [selectedAddedProduct, setSelectedAddedProduct] = useState<Product | null>(null);
   const [addedDetailOpen, setAddedDetailOpen] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNoticeState] = useState("");
+  const [noticeId, setNoticeId] = useState(0);
+  const [pending, setPending] = useState(0);
+  const setNotice = (message: string) => {
+    setNoticeState(message);
+    setNoticeId((current) => current + 1);
+  };
   const [busy, setBusy] = useState(false);
   const [savingProductId, setSavingProductId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNoticeState(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [noticeId, notice]);
 
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0), [cart]);
   const cartCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
@@ -282,17 +294,22 @@ function App() {
   }, [user, token]);
 
   async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const response = await fetch(`${API_URL}${path}`, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(options.headers || {})
-      }
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || data.error || "No se pudo completar la solicitud");
-    return data as T;
+    setPending((current) => current + 1);
+    try {
+      const response = await fetch(`${API_URL}${path}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(options.headers || {})
+        }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || data.error || "No se pudo completar la solicitud");
+      return data as T;
+    } finally {
+      setPending((current) => Math.max(0, current - 1));
+    }
   }
 
   async function loadProducts() {
@@ -687,32 +704,41 @@ function App() {
         notes: String(form.get(`line_${line.id}_notes`) || ""),
         position: index
       }));
-    const data = await request<{ invoice: ClientInvoice; message: string }>(`/api/admin/invoices/${invoice.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        title: form.get("title"),
-        status: form.get("status"),
-        issue_date: form.get("issue_date"),
-        due_date: form.get("due_date"),
-        notes: form.get("notes"),
-        lines,
-        deleted_line_ids: deletedLineIds
-      })
-    });
-    setClientInvoices((current) => current.map((item) => item.id === data.invoice.id ? data.invoice : item));
-    setNotice(data.message || "Factura actualizada.");
-    await refreshAdminData();
+    try {
+      const data = await request<{ invoice: ClientInvoice; message: string }>(`/api/admin/invoices/${invoice.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: form.get("title"),
+          status: form.get("status"),
+          issue_date: form.get("issue_date"),
+          due_date: form.get("due_date"),
+          notes: form.get("notes"),
+          lines,
+          deleted_line_ids: deletedLineIds
+        })
+      });
+      setClientInvoices((current) => current.map((item) => item.id === data.invoice.id ? data.invoice : item));
+      setNotice(data.message || "Factura actualizada.");
+      await refreshAdminData();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "No se pudo guardar la factura. Revisa los campos.");
+    }
   }
 
   async function handleDownloadInvoicePdf(invoice: ClientInvoice) {
+    setPending((current) => current + 1);
+    setNotice("Generando PDF...");
     try {
       const response = await fetch(`${API_URL}/api/admin/invoices/${invoice.id}/pdf`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       if (!response.ok) throw new Error("No se pudo generar el PDF.");
       downloadBlob(invoiceFileName(invoice, "pdf"), "application/pdf", await response.blob());
+      setNotice("PDF descargado.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "No se pudo descargar el PDF.");
+    } finally {
+      setPending((current) => Math.max(0, current - 1));
     }
   }
 
@@ -988,7 +1014,8 @@ function App() {
         </div>
       </nav>}
 
-      {notice && <button className="notice" onClick={() => setNotice("")}>{notice}</button>}
+      {pending > 0 && <div className="global-progress" aria-hidden="true"><span /></div>}
+      {notice && <button key={noticeId} className="notice" onClick={() => setNoticeState("")}>{notice}</button>}
 
       {view === "auth" && <AuthLanding authSubmit={authSubmit} busy={busy} />}
       {view === "catalog" && user?.role === "client" && <Catalog products={products} addToCart={addToCart} />}

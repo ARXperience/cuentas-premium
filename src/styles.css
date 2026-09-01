@@ -712,6 +712,55 @@ textarea {
   padding: 14px 16px;
   font-weight: 700;
   box-shadow: var(--shadow-hover);
+  animation: notice-pop 0.28s ease;
+}
+
+@keyframes notice-pop {
+  0% { transform: translateY(-12px) scale(0.96); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* Barra global de "procesando": aparece en cada peticion en curso. */
+.global-progress {
+  position: fixed;
+  z-index: 300;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(59, 130, 246, 0.18);
+  overflow: hidden;
+}
+
+.global-progress span {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  animation: global-progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes global-progress-slide {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(120%); }
+  100% { transform: translateX(260%); }
+}
+
+/* Feedback inmediato al tocar CUALQUIER boton. */
+button {
+  transition: transform 0.06s ease, filter 0.12s ease, box-shadow 0.12s ease;
+  touch-action: manipulation;
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px) scale(0.97);
+  filter: brightness(0.94);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .modal-backdrop {

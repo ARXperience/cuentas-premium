@@ -305,7 +305,12 @@ function App() {
         }
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || data.error || "No se pudo completar la solicitud");
+      if (!response.ok) {
+        const issue = Array.isArray(data.issues) && data.issues[0]
+          ? ` (${(data.issues[0].path || []).join(".") || "campo"}: ${data.issues[0].message})`
+          : "";
+        throw new Error((data.message || data.error || "No se pudo completar la solicitud") + issue);
+      }
       return data as T;
     } finally {
       setPending((current) => Math.max(0, current - 1));
@@ -690,25 +695,31 @@ function App() {
     const deletedLineIds = deletedRaw ? deletedRaw.split(",").filter(Boolean) : [];
     const lines = invoice.lines
       .filter((line) => !deletedLineIds.includes(line.id))
-      .map((line, index) => ({
-        id: line.id,
-        description: String(form.get(`line_${line.id}_description`) || ""),
-        account_email: String(form.get(`line_${line.id}_account_email`) || ""),
-        profile_name: String(form.get(`line_${line.id}_profile_name`) || ""),
-        pin: String(form.get(`line_${line.id}_pin`) || ""),
-        quantity: Number(form.get(`line_${line.id}_quantity`) || 1),
-        unit_price: Number(form.get(`line_${line.id}_unit_price`) || 0),
-        total: Number(form.get(`line_${line.id}_total`) || 0),
-        ordered_at: String(form.get(`line_${line.id}_ordered_at`) || ""),
-        delivered_at: String(form.get(`line_${line.id}_delivered_at`) || ""),
-        notes: String(form.get(`line_${line.id}_notes`) || ""),
-        position: index
-      }));
+      .map((line, index) => {
+        const qty = Math.max(1, Math.min(999, Math.round(Number(form.get(`line_${line.id}_quantity`)) || line.quantity || 1)));
+        const unit = Math.max(0, Math.round(Number(form.get(`line_${line.id}_unit_price`)) || line.unit_price || 0));
+        const total = Math.max(0, Math.round(Number(form.get(`line_${line.id}_total`)) || unit * qty));
+        return {
+          id: line.id,
+          description: String(form.get(`line_${line.id}_description`) || line.description || "Servicio").trim() || "Servicio",
+          account_email: String(form.get(`line_${line.id}_account_email`) || ""),
+          profile_name: String(form.get(`line_${line.id}_profile_name`) || ""),
+          pin: String(form.get(`line_${line.id}_pin`) || ""),
+          quantity: qty,
+          unit_price: unit,
+          total,
+          ordered_at: String(form.get(`line_${line.id}_ordered_at`) || ""),
+          delivered_at: String(form.get(`line_${line.id}_delivered_at`) || ""),
+          notes: String(form.get(`line_${line.id}_notes`) || ""),
+          position: index
+        };
+      });
+    const titleValue = String(form.get("title") || "").trim();
     try {
       const data = await request<{ invoice: ClientInvoice; message: string }>(`/api/admin/invoices/${invoice.id}`, {
         method: "PATCH",
         body: JSON.stringify({
-          title: form.get("title"),
+          ...(titleValue.length >= 3 ? { title: titleValue } : {}),
           status: form.get("status"),
           issue_date: form.get("issue_date"),
           due_date: form.get("due_date"),

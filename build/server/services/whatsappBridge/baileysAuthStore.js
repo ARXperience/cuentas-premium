@@ -1,7 +1,10 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { BufferJSON, initAuthCreds, proto } from 'baileys';
 export const BAILEYS_CREDS_SETTING = 'whatsapp_baileys_creds_v1';
 export const BAILEYS_KEYS_SETTING = 'whatsapp_baileys_keys_v1';
+const SESSION_FILE_NAME = 'baileys-session-v1.json';
 function encryptionKey() {
     const secret = process.env.APP_ENCRYPTION_KEY;
     if (!secret)
@@ -32,35 +35,79 @@ function serialize(value) {
 function deserialize(value) {
     return JSON.parse(value, BufferJSON.reviver);
 }
+function hostingerDomainRoot() {
+    const normalizedCwd = process.cwd();
+    for (const marker of [
+        `${path.sep}hbuilds${path.sep}versions${path.sep}`,
+        `${path.sep}public_html${path.sep}.builds${path.sep}`
+    ]) {
+        const markerIndex = normalizedCwd.indexOf(marker);
+        if (markerIndex > 0)
+            return normalizedCwd.slice(0, markerIndex);
+    }
+    return '';
+}
+function sessionDirectory() {
+    const configuredPath = process.env.WHATSAPP_SESSION_PATH || './.whatsapp-session';
+    if (path.isAbsolute(configuredPath))
+        return configuredPath;
+    const stableDomainRoot = process.env.NODE_ENV === 'production' ? hostingerDomainRoot() : '';
+    return path.resolve(stableDomainRoot || process.cwd(), configuredPath);
+}
+function sessionFilePath() {
+    return path.join(sessionDirectory(), SESSION_FILE_NAME);
+}
+async function readFileSnapshot() {
+    try {
+        const raw = await fs.readFile(sessionFilePath(), 'utf8');
+        const file = JSON.parse(raw);
+        if (!file?.data)
+            return null;
+        return deserialize(decrypt(file.data));
+    }
+    catch (error) {
+        const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+        if (code === 'ENOENT')
+            return null;
+        throw error;
+    }
+}
+async function saveFileSnapshot(snapshot) {
+    await fs.mkdir(sessionDirectory(), { recursive: true });
+    const payload = {
+        version: 1,
+        data: encrypt(serialize(snapshot))
+    };
+    await fs.writeFile(sessionFilePath(), JSON.stringify(payload), { mode: 0o600 });
+}
 async function readEncryptedSetting(prisma, key) {
     const setting = await prisma.appSetting.findUnique({ where: { key } });
     if (!setting?.value)
         return null;
     return deserialize(decrypt(setting.value));
 }
-async function saveEncryptedSetting(prisma, key, value) {
-    const encrypted = encrypt(serialize(value));
-    await prisma.appSetting.upsert({
-        where: { key },
-        update: { value: encrypted, private: true },
-        create: { key, value: encrypted, private: true }
-    });
+async function readLegacyDatabaseSnapshot(prisma) {
+    const creds = await readEncryptedSetting(prisma, BAILEYS_CREDS_SETTING);
+    const keys = await readEncryptedSetting(prisma, BAILEYS_KEYS_SETTING);
+    if (!creds && !keys)
+        return null;
+    return {
+        creds: creds || initAuthCreds(),
+        keys: keys || {}
+    };
 }
 export async function createBaileysDatabaseAuthState(prisma) {
     let creds;
     let keySnapshot;
     try {
-        creds =
-            await readEncryptedSetting(prisma, BAILEYS_CREDS_SETTING)
-                || initAuthCreds();
-        keySnapshot =
-            await readEncryptedSetting(prisma, BAILEYS_KEYS_SETTING)
-                || {};
+        const fileSnapshot = await readFileSnapshot();
+        const snapshot = fileSnapshot || await readLegacyDatabaseSnapshot(prisma);
+        creds = snapshot?.creds || initAuthCreds();
+        keySnapshot = snapshot?.keys || {};
+        if (!fileSnapshot && snapshot)
+            await saveFileSnapshot(snapshot);
     }
     catch (_error) {
-        await prisma.appSetting.deleteMany({
-            where: { key: { in: [BAILEYS_CREDS_SETTING, BAILEYS_KEYS_SETTING] } }
-        });
         creds = initAuthCreds();
         keySnapshot = {};
     }
@@ -100,18 +147,16 @@ export async function createBaileysDatabaseAuthState(prisma) {
                     if (!Object.keys(keySnapshot[category]).length)
                         delete keySnapshot[category];
                 }
-                await queueWrite(() => saveEncryptedSetting(prisma, BAILEYS_KEYS_SETTING, keySnapshot));
+                await queueWrite(() => saveFileSnapshot({ creds: state.creds, keys: keySnapshot }));
             }
         }
     };
     return {
         state,
-        saveCreds: () => queueWrite(() => saveEncryptedSetting(prisma, BAILEYS_CREDS_SETTING, state.creds)),
+        saveCreds: () => queueWrite(() => saveFileSnapshot({ creds: state.creds, keys: keySnapshot })),
         clear: async () => {
             await writeQueue.catch(() => undefined);
-            await prisma.appSetting.deleteMany({
-                where: { key: { in: [BAILEYS_CREDS_SETTING, BAILEYS_KEYS_SETTING] } }
-            });
+            await fs.rm(sessionFilePath(), { force: true }).catch(() => undefined);
         }
     };
 }

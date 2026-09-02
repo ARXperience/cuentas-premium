@@ -1454,32 +1454,65 @@ async function handleWhatsAppOutboxFinalFailure(
 }
 
 const codeLoginSchema = z.object({ access_code: z.string().regex(/^\d{4}$/, 'El codigo debe tener 4 digitos.') });
+type HealthResponseBody = {
+  ok: boolean;
+  database: 'connected' | 'unavailable';
+  databaseProvider: string;
+  databaseMode: string;
+  databaseDriver: string;
+  whatsappSessionStore: 'file';
+  whatsappSessionPathMode: 'stable-hostinger-aware';
+  databaseHost?: string;
+  errorCode?: string;
+  errorReason?: string;
+  errorMessage?: string;
+};
+let healthCache: { expiresAt: number; status: number; body: HealthResponseBody } | null = null;
 
 app.get('/api/health', async (_req, res) => {
+  if (healthCache && healthCache.expiresAt > Date.now()) {
+    return res.status(healthCache.status).json(healthCache.body);
+  }
   const databaseInfo = getRuntimeDatabaseInfo();
   try {
     await prisma.$queryRaw`SELECT 1`;
-    res.json({
+    const body: HealthResponseBody = {
       ok: true,
       database: 'connected',
       databaseProvider: databaseInfo.provider,
       databaseMode: databaseInfo.mode,
-      databaseDriver: 'pg-adapter'
-    });
+      databaseDriver: 'pg-adapter',
+      whatsappSessionStore: 'file',
+      whatsappSessionPathMode: 'stable-hostinger-aware'
+    };
+    healthCache = {
+      status: 200,
+      body,
+      expiresAt: Date.now() + Number(process.env.HEALTH_CACHE_SECONDS || 30) * 1000
+    };
+    res.json(body);
   } catch (error) {
     console.error('[health:database]', error instanceof Error ? error.message : error);
     const { code: errorCode, reason: errorReason, rawMessage } = databaseErrorReason(error);
-    res.status(503).json({
+    const body: HealthResponseBody = {
       ok: false,
       database: 'unavailable',
       databaseProvider: databaseInfo.provider,
       databaseMode: databaseInfo.mode,
       databaseDriver: 'pg-adapter',
+      whatsappSessionStore: 'file',
+      whatsappSessionPathMode: 'stable-hostinger-aware',
       databaseHost: databaseInfo.host,
       errorCode,
       errorReason,
       errorMessage: sanitizeDatabaseErrorMessage(rawMessage)
-    });
+    };
+    healthCache = {
+      status: 503,
+      body,
+      expiresAt: Date.now() + Number(process.env.HEALTH_ERROR_CACHE_SECONDS || 10) * 1000
+    };
+    res.status(503).json(body);
   }
 });
 app.get('/favicon.ico', (_req, res) => res.status(204).end());

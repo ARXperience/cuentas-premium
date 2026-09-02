@@ -2275,7 +2275,6 @@ app.get('/api/admin/users', requireAuth, requireRole('admin'), async (_req, res,
 
 app.get('/api/admin/invoices', requireAuth, requireRole('admin'), async (_req, res, next) => {
   try {
-    await ensureServimilMonthlyInvoice();
     const invoices = await prisma.clientInvoice.findMany({
       include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } },
       orderBy: [{ period: 'desc' }, { created_at: 'desc' }],

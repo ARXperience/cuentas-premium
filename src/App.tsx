@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { AccountReport, AccountReportReason, AccountReportStatus, CartItem, ClientInvoice, Dashboard, DeliveredAccount, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
 import centroDigitalLogo from "./assets/centro-digital-imagotipo.png";
 import centroDigitalWordmark from "./assets/centro-digital-wordmark.png";
@@ -257,6 +257,9 @@ function App() {
   const [notice, setNoticeState] = useState("");
   const [noticeId, setNoticeId] = useState(0);
   const [pending, setPending] = useState(0);
+  const clientRefreshInFlight = useRef(false);
+  const providerRefreshInFlight = useRef(false);
+  const adminRefreshInFlight = useRef(false);
   const setNotice = (message: string) => {
     setNoticeState(message);
     setNoticeId((current) => current + 1);
@@ -294,24 +297,29 @@ function App() {
     if (!user || !token || user.role !== "provider") return;
     refreshProviderData();
     const interval = window.setInterval(() => {
+      if (document.hidden) return;
       const activeElement = document.activeElement;
       const skipOrders = activeElement instanceof HTMLElement && Boolean(activeElement.closest(".delivery-form"));
       refreshProviderData({ skipOrders });
-    }, 5000);
+    }, 30000);
     return () => window.clearInterval(interval);
   }, [user, token]);
 
   useEffect(() => {
     if (!user || !token || user.role !== "admin") return;
     refreshAdminData();
-    const interval = window.setInterval(refreshAdminData, 10000);
+    const interval = window.setInterval(() => {
+      if (!document.hidden) refreshAdminData({ quiet: true });
+    }, 60000);
     return () => window.clearInterval(interval);
   }, [user, token]);
 
   useEffect(() => {
     if (!user || !token || user.role !== "client") return;
     refreshClientData();
-    const interval = window.setInterval(refreshClientData, 5000);
+    const interval = window.setInterval(() => {
+      if (!document.hidden) refreshClientData({ quiet: true });
+    }, 30000);
     return () => window.clearInterval(interval);
   }, [user, token]);
 
@@ -469,16 +477,71 @@ function App() {
     setUnreadNotifications(data.count || 0);
   }
 
-  async function refreshClientData() {
-    await Promise.all([loadProducts(), loadOrders(), loadNotifications(), loadUnreadNotifications()]);
+  async function refreshClientData(options: { quiet?: boolean } = {}) {
+    if (clientRefreshInFlight.current) return;
+    clientRefreshInFlight.current = true;
+    try {
+      await loadProducts();
+      await loadOrders();
+      await loadNotifications();
+      await loadUnreadNotifications();
+    } catch (error) {
+      if (!options.quiet) setNotice(error instanceof Error ? error.message : "No se pudo actualizar la informacion.");
+    } finally {
+      clientRefreshInFlight.current = false;
+    }
   }
 
   async function refreshProviderData(options: { skipOrders?: boolean } = {}) {
-    await Promise.all([options.skipOrders ? Promise.resolve() : loadOrders(), loadProviderDeliveries()]);
+    if (providerRefreshInFlight.current) return;
+    providerRefreshInFlight.current = true;
+    try {
+      if (!options.skipOrders) await loadOrders();
+      await loadProviderDeliveries();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "No se pudo actualizar la informacion.");
+    } finally {
+      providerRefreshInFlight.current = false;
+    }
   }
 
-  async function refreshAdminData() {
-    await Promise.all([loadDashboard(), loadOrders(), loadUsers(), loadProducts(), loadClientInvoices(), loadProviderConfig(), loadPendingPayouts(), loadPendingDeliveryOrders(), loadTrashedOrders(), loadWhatsAppStatus(), loadEmailStatus(), loadDeliveryDrafts(), loadWhatsAppInbound(), loadAdminLogs(), loadAccountReports(), loadNotifications(), loadUnreadNotifications()]);
+  async function refreshAdminData(options: { quiet?: boolean } = {}) {
+    if (adminRefreshInFlight.current) return;
+    adminRefreshInFlight.current = true;
+    const tasks = [
+      loadDashboard,
+      loadOrders,
+      loadUsers,
+      loadProducts,
+      loadClientInvoices,
+      loadProviderConfig,
+      loadPendingPayouts,
+      loadPendingDeliveryOrders,
+      loadTrashedOrders,
+      loadWhatsAppStatus,
+      loadEmailStatus,
+      loadDeliveryDrafts,
+      loadWhatsAppInbound,
+      loadAdminLogs,
+      loadAccountReports,
+      loadNotifications,
+      loadUnreadNotifications
+    ];
+    let firstError: unknown = null;
+    try {
+      for (const task of tasks) {
+        try {
+          await task();
+        } catch (error) {
+          firstError ||= error;
+        }
+      }
+      if (firstError && !options.quiet) {
+        setNotice(firstError instanceof Error ? firstError.message : "No se pudo actualizar toda la informacion.");
+      }
+    } finally {
+      adminRefreshInFlight.current = false;
+    }
   }
 
   async function submitAccountReport(input: { delivered_account_id: string; reason: AccountReportReason; details: string; evidence_data_url: string }) {

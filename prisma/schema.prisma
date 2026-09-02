@@ -372,6 +372,8 @@ model ClientInvoice {
   currency          String              @default("COP")
   issue_date        DateTime
   due_date          DateTime
+  period_start      DateTime?
+  period_end        DateTime?
   total_amount      Int                 @default(0)
   notes             String?
   auto_generated    Boolean             @default(true)
@@ -385,6 +387,8 @@ model ClientInvoice {
   @@unique([user_id, period])
   @@index([user_id])
   @@index([period])
+  @@index([period_start])
+  @@index([period_end])
   @@index([status])
   @@index([due_date])
   @@map("client_invoices")

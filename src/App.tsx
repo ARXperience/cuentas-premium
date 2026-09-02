@@ -92,6 +92,24 @@ function dateTimeInputValueNow() {
   return dateTimeInputValue(new Date().toISOString());
 }
 
+function dateInputValue(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function currentMonthDateRange() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return {
+    start: dateInputValue(start.toISOString()),
+    end: dateInputValue(end.toISOString())
+  };
+}
+
 function orderLabel(order?: Pick<Order, "id" | "order_number"> | null) {
   return order?.order_number || (order?.id ? `#${order.id.slice(0, 8)}` : "-");
 }
@@ -673,11 +691,15 @@ function App() {
     await refreshAdminData();
   }
 
-  async function generateServimilInvoice(period?: string) {
+  async function generateServimilInvoice(period?: string, startDate?: string, endDate?: string) {
     try {
-      const data = await request<{ invoice: ClientInvoice; message: string }>("/api/admin/invoices/servimil/generate", {
+      const data = await request<{ invoice: ClientInvoice; message: string }>("/api/admin/billing/servimil", {
         method: "POST",
-        body: JSON.stringify({ period: period || undefined })
+        body: JSON.stringify({
+          period: period || undefined,
+          start_date: startDate || undefined,
+          end_date: endDate || undefined
+        })
       });
       setClientInvoices((current) => {
         const exists = current.some((invoice) => invoice.id === data.invoice.id);
@@ -721,13 +743,15 @@ function App() {
       });
     const titleValue = String(form.get("title") || "").trim();
     try {
-      const data = await request<{ invoice: ClientInvoice; message: string }>(`/api/admin/invoices/${invoice.id}`, {
-        method: "PATCH",
+      const data = await request<{ invoice: ClientInvoice; message: string }>(`/api/admin/billing/invoices/${invoice.id}`, {
+        method: "POST",
         body: JSON.stringify({
           ...(titleValue.length >= 3 ? { title: titleValue } : {}),
           status: "sent",
           issue_date: issueDate,
           due_date: form.get("due_date"),
+          period_start: form.get("period_start"),
+          period_end: form.get("period_end"),
           notes: form.get("notes"),
           lines,
           deleted_line_ids: deletedLineIds
@@ -2017,6 +2041,13 @@ function invoiceFileName(invoice: ClientInvoice, extension: "pdf" | "doc") {
   return `${invoice.invoice_number || "factura"}-${invoice.period || "periodo"}.${extension}`.replace(/[^\w.-]+/g, "-");
 }
 
+function invoiceRangeLabel(invoice: Pick<ClientInvoice, "period" | "period_start" | "period_end">) {
+  if (invoice.period_start || invoice.period_end) {
+    return `${invoice.period_start ? formatDateTime(invoice.period_start) : "-"} a ${invoice.period_end ? formatDateTime(invoice.period_end) : "-"}`;
+  }
+  return invoice.period;
+}
+
 function invoiceDocumentHtml(invoice: ClientInvoice, servimilUser?: User) {
   const rows = invoice.lines.map((line) => `
     <tr>
@@ -2076,12 +2107,13 @@ function invoiceDocumentHtml(invoice: ClientInvoice, servimilUser?: User) {
       </div>
     </section>
     <h1>${escapeHtml(invoice.title || "Factura mensual")}</h1>
-    <p class="muted">${escapeHtml(invoice.invoice_number)} - Periodo ${escapeHtml(invoice.period)}</p>
+    <p class="muted">${escapeHtml(invoice.invoice_number)} - Rango ${escapeHtml(invoiceRangeLabel(invoice))}</p>
     <section class="meta">
       <div><span class="label">Factura</span><span class="value">${escapeHtml(invoice.invoice_number)}</span></div>
       <div><span class="label">Emision</span><span class="value">${escapeHtml(formatDateTime(invoice.issue_date))}</span></div>
       <div><span class="label">Vencimiento</span><span class="value">${escapeHtml(formatDateTime(invoice.due_date))}</span></div>
       <div><span class="label">Cliente</span><span class="value">${escapeHtml(servimilUser?.name || "Servimil")}</span></div>
+      <div><span class="label">Rango calculado</span><span class="value">${escapeHtml(invoiceRangeLabel(invoice))}</span></div>
       <div><span class="label">Total</span><span class="value">${escapeHtml(money.format(invoice.total_amount))}</span></div>
     </section>
     <table>
@@ -2151,7 +2183,7 @@ function invoicePdfLines(invoice: ClientInvoice, servimilUser?: User) {
     "Factura mensual",
     `Factura: ${invoice.invoice_number}`,
     `Cliente: ${servimilUser?.name || "Servimil"} - Codigo 1111`,
-    `Periodo: ${invoice.period}`,
+    `Rango calculado: ${invoiceRangeLabel(invoice)}`,
     `Emision: ${formatDateTime(invoice.issue_date)}`,
     `Vencimiento: ${formatDateTime(invoice.due_date)}`,
     `Total a cobrar: ${money.format(invoice.total_amount)}`,
@@ -2308,7 +2340,7 @@ function InvoiceDocumentPreview({ invoice, servimilUser }: { invoice: ClientInvo
         <div className="invoice-preview-title">
           <span className="eyebrow">Vista previa</span>
           <h2>{invoice.title || "Factura mensual"}</h2>
-          <p>{invoice.invoice_number} - Periodo {invoice.period}</p>
+          <p>{invoice.invoice_number} - Rango {invoiceRangeLabel(invoice)}</p>
         </div>
 
         <div className="invoice-preview-meta">
@@ -2316,6 +2348,7 @@ function InvoiceDocumentPreview({ invoice, servimilUser }: { invoice: ClientInvo
           <div><span>Emision</span><strong>{formatDateTime(invoice.issue_date)}</strong></div>
           <div><span>Vencimiento</span><strong>{formatDateTime(invoice.due_date)}</strong></div>
           <div><span>Cliente</span><strong>{servimilUser?.name || "Servimil"}</strong></div>
+          <div><span>Rango</span><strong>{invoiceRangeLabel(invoice)}</strong></div>
           <div><span>Total</span><strong>{money.format(invoice.total_amount)}</strong></div>
         </div>
 
@@ -2370,11 +2403,14 @@ function InvoiceDocumentPreview({ invoice, servimilUser }: { invoice: ClientInvo
 function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, saveClientInvoice, downloadInvoicePdf }: {
   invoices: ClientInvoice[];
   servimilUser?: User;
-  generateServimilInvoice: (period?: string) => void;
+  generateServimilInvoice: (period?: string, startDate?: string, endDate?: string) => void;
   saveClientInvoice: (invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) => Promise<void>;
   downloadInvoicePdf: (invoice: ClientInvoice) => void;
 }) {
   const [period, setPeriod] = useState(currentInvoicePeriod());
+  const initialRange = currentMonthDateRange();
+  const [startDate, setStartDate] = useState(initialRange.start);
+  const [endDate, setEndDate] = useState(initialRange.end);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(invoices[0]?.id || null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [removedLineIds, setRemovedLineIds] = useState<string[]>([]);
@@ -2402,6 +2438,8 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
     await saveClientInvoice(selectedInvoice, event);
     setRemovedLineIds([]);
   };
+  const selectedStartDate = dateInputValue(selectedInvoice?.period_start) || startDate;
+  const selectedEndDate = dateInputValue(selectedInvoice?.period_end) || endDate;
 
   return (
     <section className="glass-panel admin-module-panel billing-panel">
@@ -2419,7 +2457,15 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
             Periodo
             <input type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
           </label>
-          <button className="btn-solid" type="button" onClick={() => generateServimilInvoice(period)}>Generar factura ahora</button>
+          <label>
+            Desde
+            <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+          </label>
+          <label>
+            Hasta
+            <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+          </label>
+          <button className="btn-solid" type="button" onClick={() => generateServimilInvoice(period, startDate, endDate)}>Generar factura ahora</button>
         </div>
       </div>
 
@@ -2440,7 +2486,7 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
               onClick={() => setSelectedInvoiceId(invoice.id)}
             >
               <strong>{invoice.invoice_number}</strong>
-              <span>{invoice.period} - {invoiceStatusLabel(invoice.status)}</span>
+              <span>{invoiceRangeLabel(invoice)} - {invoiceStatusLabel(invoice.status)}</span>
               <em>{money.format(invoice.total_amount)}</em>
             </button>
           ))}
@@ -2465,6 +2511,14 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
               <label>
                 Emision
                 <input name="issue_date" type="datetime-local" defaultValue={dateTimeInputValueNow()} />
+              </label>
+              <label>
+                Desde
+                <input name="period_start" type="date" defaultValue={selectedStartDate} />
+              </label>
+              <label>
+                Hasta
+                <input name="period_end" type="date" defaultValue={selectedEndDate} />
               </label>
               <label>
                 Vencimiento
@@ -2533,7 +2587,7 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
             <input type="hidden" name="deleted_line_ids" value={removedLineIds.join(",")} />
             <div className="status-actions invoice-actions">
               <button className="btn-solid">Guardar factura</button>
-              <button type="button" onClick={() => generateServimilInvoice(selectedInvoice.period)}>Actualizar con cuentas nuevas</button>
+              <button type="button" onClick={() => generateServimilInvoice(selectedInvoice.period, selectedStartDate, selectedEndDate)}>Actualizar con cuentas nuevas</button>
               <button type="button" onClick={() => setPreviewOpen((open) => !open)}>{previewOpen ? "Ocultar vista previa" : "Vista previa"}</button>
               <button type="button" onClick={() => downloadInvoicePdf(selectedInvoice)}>Descargar PDF</button>
               <button type="button" onClick={() => invoicePreview && printInvoice(invoicePreview, servimilUser)}>Imprimir / guardar PDF</button>
@@ -2661,7 +2715,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   testAdminWhatsApp: () => void;
   markReceiptSent: (payout: ProviderPayout) => void;
   cancelPayout: (payout: ProviderPayout) => void;
-  generateServimilInvoice: (period?: string) => void;
+  generateServimilInvoice: (period?: string, startDate?: string, endDate?: string) => void;
   saveClientInvoice: (invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) => Promise<void>;
   downloadInvoicePdf: (invoice: ClientInvoice) => void;
   previewDeliveryMessage: (orderId: string | undefined, rawText: string) => Promise<{ preview: DeliveryParserPreview; order: Order }>;

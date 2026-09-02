@@ -298,6 +298,8 @@ CREATE TABLE IF NOT EXISTS "client_invoices" (
   "currency" TEXT NOT NULL DEFAULT 'COP',
   "issue_date" TIMESTAMP(3) NOT NULL,
   "due_date" TIMESTAMP(3) NOT NULL,
+  "period_start" TIMESTAMP(3),
+  "period_end" TIMESTAMP(3),
   "total_amount" INTEGER NOT NULL DEFAULT 0,
   "notes" TEXT,
   "auto_generated" BOOLEAN NOT NULL DEFAULT true,
@@ -377,6 +379,8 @@ CREATE INDEX IF NOT EXISTS "delivery_drafts_created_at_idx" ON "delivery_drafts"
 CREATE UNIQUE INDEX IF NOT EXISTS "client_invoices_user_id_period_key" ON "client_invoices"("user_id", "period");
 CREATE INDEX IF NOT EXISTS "client_invoices_user_id_idx" ON "client_invoices"("user_id");
 CREATE INDEX IF NOT EXISTS "client_invoices_period_idx" ON "client_invoices"("period");
+CREATE INDEX IF NOT EXISTS "client_invoices_period_start_idx" ON "client_invoices"("period_start");
+CREATE INDEX IF NOT EXISTS "client_invoices_period_end_idx" ON "client_invoices"("period_end");
 CREATE INDEX IF NOT EXISTS "client_invoices_status_idx" ON "client_invoices"("status");
 CREATE INDEX IF NOT EXISTS "client_invoices_due_date_idx" ON "client_invoices"("due_date");
 CREATE INDEX IF NOT EXISTS "client_invoice_lines_invoice_id_idx" ON "client_invoice_lines"("invoice_id");

@@ -255,6 +255,8 @@ export type ClientInvoice = {
   currency: string;
   issue_date: string;
   due_date: string;
+  period_start?: string | null;
+  period_end?: string | null;
   total_amount: number;
   notes?: string | null;
   auto_generated: boolean;

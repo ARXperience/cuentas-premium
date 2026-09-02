@@ -35,6 +35,9 @@ function lerp(a, b, t) {
 export async function buildInvoicePdf(invoice, opts) {
     const { money, formatDateTime } = opts;
     const clientName = opts.clientName || invoice.user?.name || 'Servimil';
+    const rangeLabel = invoice.period_start || invoice.period_end
+        ? `${formatDateTime(invoice.period_start)} a ${formatDateTime(invoice.period_end)}`
+        : invoice.period;
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -72,7 +75,7 @@ export async function buildInvoicePdf(invoice, opts) {
     text('Centro Digital de Diseno', M + cDims.width + 10, y - 11, 12, bold);
     text('Plataforma de gestion de activos', M + cDims.width + 10, y - 24, 8, font, C.slate500);
     rightText('FACTURA', W - M, y - 16, 26, bold, C.blue);
-    rightText(`${invoice.invoice_number}  ·  Periodo ${invoice.period}`, W - M, y - 30, 9, font, C.slate500);
+    rightText(`${invoice.invoice_number}  ·  Rango ${rangeLabel}`, W - M, y - 30, 9, font, C.slate500);
     y -= logoH + 14;
     gradientBand(M, y, contentW, 5);
     y -= 22;

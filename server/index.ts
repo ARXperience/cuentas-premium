@@ -481,9 +481,64 @@ function periodBounds(period: string) {
   };
 }
 
+function dateOnlyToBogotaUtcStart(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const [, yearRaw, monthRaw, dayRaw] = match;
+  return new Date(Date.UTC(Number(yearRaw), Number(monthRaw) - 1, Number(dayRaw), 5, 0, 0));
+}
+
+function formatDateOnlyCO(value: Date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(value);
+}
+
+function invoicePeriodKeyFromRange(startDate: string, endDate: string) {
+  if (startDate.slice(0, 7) === endDate.slice(0, 7)) return startDate.slice(0, 7);
+  return `${startDate}_a_${endDate}`;
+}
+
+function invoiceNumberPeriodKey(period: string) {
+  return period.replace(/[^0-9]+/g, '').slice(0, 16) || periodForBogotaDate().replace('-', '');
+}
+
+function invoiceRange(period: string, startDate?: string | null, endDate?: string | null) {
+  const fromInput = startDate ? dateOnlyToBogotaUtcStart(startDate) : null;
+  const toInput = endDate ? dateOnlyToBogotaUtcStart(endDate) : null;
+  if (startDate || endDate) {
+    if (!fromInput || !toInput) throw new Error('Selecciona fechas validas para generar la factura.');
+    const endExclusive = new Date(toInput.getTime() + 24 * 60 * 60 * 1000);
+    if (endExclusive <= fromInput) throw new Error('La fecha final debe ser posterior o igual a la fecha inicial.');
+    const rangePeriod = invoicePeriodKeyFromRange(formatDateOnlyCO(fromInput), formatDateOnlyCO(toInput));
+    const dueDate = new Date(endExclusive.getTime() - 1);
+    return {
+      period: rangePeriod,
+      start: fromInput,
+      end: endExclusive,
+      periodStart: fromInput,
+      periodEnd: new Date(endExclusive.getTime() - 1),
+      dueDate
+    };
+  }
+  const { start, end } = periodBounds(period);
+  const { dueDate } = billingScheduleForPeriod(period);
+  return {
+    period,
+    start,
+    end,
+    periodStart: start,
+    periodEnd: new Date(end.getTime() - 1),
+    dueDate
+  };
+}
+
 function invoiceNumber(period: string, user: { name: string }) {
   const clientKey = user.name.replace(/[^a-z0-9]+/gi, '').slice(0, 8).toUpperCase() || 'CLIENTE';
-  return `FAC-${period.replace('-', '')}-${clientKey}`;
+  return `FAC-${invoiceNumberPeriodKey(period)}-${clientKey}`;
 }
 
 function lineUnitValue(item: any) {
@@ -492,8 +547,16 @@ function lineUnitValue(item: any) {
 
 function parseMaybeDate(value?: string | null) {
   if (!value) return null;
+  const dateOnly = dateOnlyToBogotaUtcStart(value);
+  if (dateOnly) return dateOnly;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseMaybeDateEndOfBogotaDay(value?: string | null) {
+  const dateOnly = value ? dateOnlyToBogotaUtcStart(value) : null;
+  if (dateOnly) return new Date(dateOnly.getTime() + 24 * 60 * 60 * 1000 - 1);
+  return parseMaybeDate(value);
 }
 
 async function serializeInvoice(invoice: any) {
@@ -507,6 +570,8 @@ async function serializeInvoice(invoice: any) {
     currency: invoice.currency,
     issue_date: invoice.issue_date,
     due_date: invoice.due_date,
+    period_start: invoice.period_start,
+    period_end: invoice.period_end,
     total_amount: invoice.total_amount,
     notes: invoice.notes,
     auto_generated: invoice.auto_generated,
@@ -570,12 +635,19 @@ async function notifyAdminInvoiceCreated(invoice: any) {
 // ponytail: lock en proceso; suficiente para un solo proceso. Para garantia multi-instancia
 // haria falta el indice unico (invoice_id, delivered_account_id), que requiere migracion.
 const invoiceGenLocks = new Map<string, Promise<any>>();
-async function generateClientInvoice(user: any, period = periodForBogotaDate(), actorId?: string, notifyAdmin = true) {
-  const key = `${user.id}:${period}`;
+async function generateClientInvoice(
+  user: any,
+  period = periodForBogotaDate(),
+  actorId?: string,
+  notifyAdmin = true,
+  customRange?: { startDate?: string | null; endDate?: string | null }
+) {
+  const range = invoiceRange(period, customRange?.startDate, customRange?.endDate);
+  const key = `${user.id}:${range.period}`;
   const prior = invoiceGenLocks.get(key);
   const run = (async () => {
     if (prior) await prior.catch(() => undefined);
-    return generateClientInvoiceInner(user, period, actorId, notifyAdmin);
+    return generateClientInvoiceInner(user, range.period, actorId, notifyAdmin, range);
   })();
   invoiceGenLocks.set(key, run);
   try {
@@ -585,17 +657,22 @@ async function generateClientInvoice(user: any, period = periodForBogotaDate(), 
   }
 }
 
-async function generateClientInvoiceInner(user: any, period = periodForBogotaDate(), actorId?: string, notifyAdmin = true) {
-  const { dueDate } = billingScheduleForPeriod(period);
+async function generateClientInvoiceInner(
+  user: any,
+  period = periodForBogotaDate(),
+  actorId?: string,
+  notifyAdmin = true,
+  range = invoiceRange(period)
+) {
+  const { dueDate } = range;
   const currentIssueDate = new Date();
-  const { start, end } = periodBounds(period);
   const existing = await prisma.clientInvoice.findUnique({
     where: { user_id_period: { user_id: user.id, period } },
     include: { user: true, lines: true }
   });
   const deliveries = await prisma.deliveredAccount.findMany({
     where: {
-      delivered_at: { gte: start, lt: end },
+      delivered_at: { gte: range.start, lt: range.end },
       order: { user_id: user.id, deleted_at: null }
     },
     include: { order: true, orderItem: true },
@@ -642,6 +719,8 @@ async function generateClientInvoiceInner(user: any, period = periodForBogotaDat
             title: existing.title || `Factura mensual ${user.name} ${period}`,
             status: 'sent',
             issue_date: currentIssueDate,
+            period_start: range.periodStart,
+            period_end: range.periodEnd,
             due_date: existing.due_date || dueDate,
             ...(staleLineIds.length ? { lines: { deleteMany: { id: { in: staleLineIds } } } } : {}),
             ...(newLines.length ? { lines: { create: newLines } } : {})
@@ -657,6 +736,8 @@ async function generateClientInvoiceInner(user: any, period = periodForBogotaDat
             status: 'sent',
             issue_date: currentIssueDate,
             due_date: dueDate,
+            period_start: range.periodStart,
+            period_end: range.periodEnd,
             notes: 'Factura generada automaticamente con las cuentas entregadas del periodo.',
             auto_generated: true,
             created_by: actorId || null,
@@ -2206,17 +2287,29 @@ app.get('/api/admin/invoices', requireAuth, requireRole('admin'), async (_req, r
   }
 });
 
-app.post('/api/admin/invoices/servimil/generate', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
+const invoiceGenerateSchema = z.object({
+  period: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+});
+
+async function handleServimilInvoiceGenerate(req: Request, res: Response, next: NextFunction) {
   try {
-    const input = z.object({ period: z.string().regex(/^\d{4}-\d{2}$/).optional() }).parse(req.body || {});
+    const input = invoiceGenerateSchema.parse(req.body || {});
     const user = await findServimilBillingUser();
     if (!user) return res.status(404).json({ message: 'No se encontro el cliente Servimil con codigo 1111.' });
-    const invoice = await generateClientInvoice(user, input.period || periodForBogotaDate(), req.user!.id, true);
+    const invoice = await generateClientInvoice(user, input.period || periodForBogotaDate(), req.user!.id, true, {
+      startDate: input.start_date,
+      endDate: input.end_date
+    });
     res.status(201).json({ invoice: await serializeInvoice(invoice), message: 'Factura de Servimil generada o sincronizada.' });
   } catch (error) {
     next(error);
   }
-});
+}
+
+app.post('/api/admin/billing/servimil', requireAuth, requireRole('admin'), handleServimilInvoiceGenerate);
+app.post('/api/admin/invoices/servimil/generate', requireAuth, requireRole('admin'), handleServimilInvoiceGenerate);
 
 const invoiceLineInputSchema = z.object({
   id: z.string().optional(),
@@ -2238,12 +2331,14 @@ const invoiceUpdateSchema = z.object({
   status: z.enum(['draft', 'sent', 'paid', 'cancelled']).optional(),
   issue_date: z.string().optional(),
   due_date: z.string().optional(),
+  period_start: z.string().optional().nullable(),
+  period_end: z.string().optional().nullable(),
   notes: z.string().trim().optional().nullable(),
   lines: z.array(invoiceLineInputSchema).optional(),
   deleted_line_ids: z.array(z.string()).optional()
 });
 
-app.patch('/api/admin/invoices/:id', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
+async function handleClientInvoiceUpdate(req: Request, res: Response, next: NextFunction) {
   try {
     const input = invoiceUpdateSchema.parse(req.body);
     const invoice = await prisma.clientInvoice.findUniqueOrThrow({
@@ -2296,6 +2391,8 @@ app.patch('/api/admin/invoices/:id', sensitiveLimiter, requireAuth, requireRole(
           status: 'sent',
           issue_date: new Date(),
           due_date: parseMaybeDate(input.due_date) || invoice.due_date,
+          period_start: parseMaybeDate(input.period_start) || invoice.period_start,
+          period_end: parseMaybeDateEndOfBogotaDay(input.period_end) || invoice.period_end,
           notes: input.notes ?? invoice.notes,
           total_amount: totalAmount
         },
@@ -2307,7 +2404,10 @@ app.patch('/api/admin/invoices/:id', sensitiveLimiter, requireAuth, requireRole(
   } catch (error) {
     next(error);
   }
-});
+}
+
+app.post('/api/admin/billing/invoices/:id', requireAuth, requireRole('admin'), handleClientInvoiceUpdate);
+app.patch('/api/admin/invoices/:id', requireAuth, requireRole('admin'), handleClientInvoiceUpdate);
 
 app.get('/api/admin/invoices/:id/pdf', requireAuth, requireRole('admin'), async (req, res, next) => {
   try {

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { AccountReport, AccountReportReason, AccountReportStatus, CartItem, ClientInvoice, Dashboard, DeliveredAccount, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
+import type { AccountReport, AccountReportReason, AccountReportStatus, CartItem, ClientInvoice, ClientInvoiceLine, Dashboard, DeliveredAccount, DeliveryDraft, DeliveryParserItem, DeliveryParserPreview, EmailStatus, Notification, Order, OrderItem, OrderStatus, Payment, Product, ProviderConfig, ProviderDelivery, ProviderPayout, Role, SystemLog, User, WhatsAppBridgeStatus, WhatsAppInboundMessage } from "./types";
 import centroDigitalLogo from "./assets/centro-digital-imagotipo.png";
 import centroDigitalWordmark from "./assets/centro-digital-wordmark.png";
 import servimilLogo from "./assets/clients/servimil.png";
@@ -98,6 +98,52 @@ function dateInputValue(value?: string | null) {
   if (Number.isNaN(date.getTime())) return "";
   const offset = date.getTimezoneOffset();
   return new Date(date.getTime() - offset * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function integerFormValue(value: FormDataEntryValue | null, fallback: number, min: number, max: number) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const parsed = raw === "" ? fallback : Number(raw);
+  const normalized = Number.isFinite(parsed) ? Math.round(parsed) : fallback;
+  return Math.max(min, Math.min(max, normalized));
+}
+
+function invoiceTextFormValue(value: FormDataEntryValue | null, fallback = "") {
+  return String(value ?? fallback).trim();
+}
+
+function invoiceLineFromForm(form: FormData, line: ClientInvoiceLine, position: number) {
+  const quantity = integerFormValue(form.get(`line_${line.id}_quantity`), line.quantity || 1, 1, 999);
+  const unitPrice = integerFormValue(form.get(`line_${line.id}_unit_price`), line.unit_price || 0, 0, 99_999_999);
+  const total = integerFormValue(form.get(`line_${line.id}_total`), unitPrice * quantity, 0, 99_999_999);
+  return {
+    id: line.id,
+    description: invoiceTextFormValue(form.get(`line_${line.id}_description`), line.description || "Servicio") || "Servicio",
+    account_email: invoiceTextFormValue(form.get(`line_${line.id}_account_email`)),
+    profile_name: invoiceTextFormValue(form.get(`line_${line.id}_profile_name`)),
+    pin: invoiceTextFormValue(form.get(`line_${line.id}_pin`)),
+    quantity,
+    unit_price: unitPrice,
+    total,
+    ordered_at: invoiceTextFormValue(form.get(`line_${line.id}_ordered_at`)),
+    delivered_at: invoiceTextFormValue(form.get(`line_${line.id}_delivered_at`)),
+    notes: invoiceTextFormValue(form.get(`line_${line.id}_notes`)),
+    position
+  };
+}
+
+function invoiceLineChanged(line: ClientInvoiceLine, input: ReturnType<typeof invoiceLineFromForm>) {
+  return (
+    input.description !== (line.description || "Servicio")
+    || input.account_email !== (line.account_email || "")
+    || input.profile_name !== (line.profile_name || "")
+    || input.pin !== (line.pin || "")
+    || input.quantity !== (line.quantity || 1)
+    || input.unit_price !== (line.unit_price || 0)
+    || input.total !== (line.total || 0)
+    || input.ordered_at !== dateTimeInputValue(line.ordered_at)
+    || input.delivered_at !== dateTimeInputValue(line.delivered_at)
+    || input.notes !== (line.notes || "")
+  );
 }
 
 function currentMonthDateRange() {
@@ -786,24 +832,10 @@ function App() {
     const deletedLineIds = deletedRaw ? deletedRaw.split(",").filter(Boolean) : [];
     const lines = invoice.lines
       .filter((line) => !deletedLineIds.includes(line.id))
-      .map((line, index) => {
-        const qty = Math.max(1, Math.min(999, Math.round(Number(form.get(`line_${line.id}_quantity`)) || line.quantity || 1)));
-        const unit = Math.max(0, Math.round(Number(form.get(`line_${line.id}_unit_price`)) || line.unit_price || 0));
-        const total = Math.max(0, Math.round(Number(form.get(`line_${line.id}_total`)) || unit * qty));
-        return {
-          id: line.id,
-          description: String(form.get(`line_${line.id}_description`) || line.description || "Servicio").trim() || "Servicio",
-          account_email: String(form.get(`line_${line.id}_account_email`) || ""),
-          profile_name: String(form.get(`line_${line.id}_profile_name`) || ""),
-          pin: String(form.get(`line_${line.id}_pin`) || ""),
-          quantity: qty,
-          unit_price: unit,
-          total,
-          ordered_at: String(form.get(`line_${line.id}_ordered_at`) || ""),
-          delivered_at: String(form.get(`line_${line.id}_delivered_at`) || ""),
-          notes: String(form.get(`line_${line.id}_notes`) || ""),
-          position: index
-        };
+      .map((line) => invoiceLineFromForm(form, line, line.position))
+      .filter((lineInput) => {
+        const original = invoice.lines.find((line) => line.id === lineInput.id);
+        return original ? invoiceLineChanged(original, lineInput) : true;
       });
     const titleValue = String(form.get("title") || "").trim();
     try {

@@ -2971,6 +2971,10 @@ app.patch('/api/admin/provider-config', requireAuth, requireRole('admin'), async
     }
 });
 if (process.env.NODE_ENV === 'production') {
+    app.get('/', (_req, res) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.sendFile(path.join(clientDistPath, 'index.html'));
+    });
     app.use(express.static(clientDistPath));
     app.get(/^\/(?!api).*/, (_req, res) => {
         res.sendFile(path.join(clientDistPath, 'index.html'));

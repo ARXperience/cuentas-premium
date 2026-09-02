@@ -88,6 +88,10 @@ function dateTimeInputValue(value?: string | null) {
   return new Date(date.getTime() - offset * 60 * 1000).toISOString().slice(0, 16);
 }
 
+function dateTimeInputValueNow() {
+  return dateTimeInputValue(new Date().toISOString());
+}
+
 function orderLabel(order?: Pick<Order, "id" | "order_number"> | null) {
   return order?.order_number || (order?.id ? `#${order.id.slice(0, 8)}` : "-");
 }
@@ -691,6 +695,7 @@ function App() {
   async function saveClientInvoice(invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const issueDate = new Date().toISOString();
     const deletedRaw = String(form.get("deleted_line_ids") || "");
     const deletedLineIds = deletedRaw ? deletedRaw.split(",").filter(Boolean) : [];
     const lines = invoice.lines
@@ -720,8 +725,8 @@ function App() {
         method: "PATCH",
         body: JSON.stringify({
           ...(titleValue.length >= 3 ? { title: titleValue } : {}),
-          status: form.get("status"),
-          issue_date: form.get("issue_date"),
+          status: "sent",
+          issue_date: issueDate,
           due_date: form.get("due_date"),
           notes: form.get("notes"),
           lines,
@@ -2366,7 +2371,7 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
   invoices: ClientInvoice[];
   servimilUser?: User;
   generateServimilInvoice: (period?: string) => void;
-  saveClientInvoice: (invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) => void;
+  saveClientInvoice: (invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) => Promise<void>;
   downloadInvoicePdf: (invoice: ClientInvoice) => void;
 }) {
   const [period, setPeriod] = useState(currentInvoicePeriod());
@@ -2374,6 +2379,11 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
   const [previewOpen, setPreviewOpen] = useState(false);
   const [removedLineIds, setRemovedLineIds] = useState<string[]>([]);
   const selectedInvoice = invoices.find((invoice) => invoice.id === selectedInvoiceId) || invoices[0] || null;
+  const visibleInvoiceLines = selectedInvoice?.lines.filter((line) => !removedLineIds.includes(line.id)) || [];
+  const visibleInvoiceTotal = visibleInvoiceLines.reduce((sum, line) => sum + line.total, 0);
+  const invoicePreview = selectedInvoice
+    ? { ...selectedInvoice, status: "sent", issue_date: new Date().toISOString(), total_amount: visibleInvoiceTotal, lines: visibleInvoiceLines }
+    : null;
   const totalPending = invoices.filter((invoice) => invoice.status !== "paid" && invoice.status !== "cancelled").reduce((sum, invoice) => sum + invoice.total_amount, 0);
 
   useEffect(() => {
@@ -2386,6 +2396,12 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
 
   const toggleRemovedLine = (lineId: string) =>
     setRemovedLineIds((ids) => (ids.includes(lineId) ? ids.filter((id) => id !== lineId) : [...ids, lineId]));
+
+  const handleInvoiceSave = async (event: FormEvent<HTMLFormElement>) => {
+    if (!selectedInvoice) return;
+    await saveClientInvoice(selectedInvoice, event);
+    setRemovedLineIds([]);
+  };
 
   return (
     <section className="glass-panel admin-module-panel billing-panel">
@@ -2424,14 +2440,14 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
               onClick={() => setSelectedInvoiceId(invoice.id)}
             >
               <strong>{invoice.invoice_number}</strong>
-              <span>{invoice.period} - {invoice.status}</span>
+              <span>{invoice.period} - {invoiceStatusLabel(invoice.status)}</span>
               <em>{money.format(invoice.total_amount)}</em>
             </button>
           ))}
         </aside>
 
         {selectedInvoice && (
-          <form key={selectedInvoice.id} className="invoice-editor" onSubmit={(event) => saveClientInvoice(selectedInvoice, event)}>
+          <form key={selectedInvoice.id} className="invoice-editor" onSubmit={handleInvoiceSave}>
             <div className="invoice-editor-head">
               <label>
                 Titulo
@@ -2439,7 +2455,7 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
               </label>
               <label>
                 Estado
-                <select name="status" defaultValue={selectedInvoice.status}>
+                <select name="status" defaultValue="sent">
                   <option value="draft">Borrador</option>
                   <option value="sent">Enviada</option>
                   <option value="paid">Pagada</option>
@@ -2448,7 +2464,7 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
               </label>
               <label>
                 Emision
-                <input name="issue_date" type="datetime-local" defaultValue={dateTimeInputValue(selectedInvoice.issue_date)} />
+                <input name="issue_date" type="datetime-local" defaultValue={dateTimeInputValueNow()} />
               </label>
               <label>
                 Vencimiento
@@ -2462,7 +2478,7 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
 
             <div className="invoice-total-strip">
               <span>Total factura</span>
-              <strong>{money.format(selectedInvoice.lines.filter((line) => !removedLineIds.includes(line.id)).reduce((sum, line) => sum + line.total, 0))}</strong>
+              <strong>{money.format(visibleInvoiceTotal)}</strong>
               <small>{removedLineIds.length ? `${removedLineIds.length} linea(s) marcada(s) para eliminar. Guarda para aplicar.` : "Las lineas se pueden editar o quitar antes de guardar."}</small>
             </div>
 
@@ -2520,10 +2536,10 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
               <button type="button" onClick={() => generateServimilInvoice(selectedInvoice.period)}>Actualizar con cuentas nuevas</button>
               <button type="button" onClick={() => setPreviewOpen((open) => !open)}>{previewOpen ? "Ocultar vista previa" : "Vista previa"}</button>
               <button type="button" onClick={() => downloadInvoicePdf(selectedInvoice)}>Descargar PDF</button>
-              <button type="button" onClick={() => printInvoice(selectedInvoice, servimilUser)}>Imprimir / guardar PDF</button>
-              <button type="button" onClick={() => downloadInvoiceDoc(selectedInvoice, servimilUser)}>Descargar DOC</button>
+              <button type="button" onClick={() => invoicePreview && printInvoice(invoicePreview, servimilUser)}>Imprimir / guardar PDF</button>
+              <button type="button" onClick={() => invoicePreview && downloadInvoiceDoc(invoicePreview, servimilUser)}>Descargar DOC</button>
             </div>
-            {previewOpen && <InvoiceDocumentPreview invoice={selectedInvoice} servimilUser={servimilUser} />}
+            {previewOpen && invoicePreview && <InvoiceDocumentPreview invoice={invoicePreview} servimilUser={servimilUser} />}
           </form>
         )}
       </div>
@@ -2646,7 +2662,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   markReceiptSent: (payout: ProviderPayout) => void;
   cancelPayout: (payout: ProviderPayout) => void;
   generateServimilInvoice: (period?: string) => void;
-  saveClientInvoice: (invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) => void;
+  saveClientInvoice: (invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) => Promise<void>;
   downloadInvoicePdf: (invoice: ClientInvoice) => void;
   previewDeliveryMessage: (orderId: string | undefined, rawText: string) => Promise<{ preview: DeliveryParserPreview; order: Order }>;
   approveParsedDelivery: (orderId: string, rawText: string, items: DeliveryParserItem[]) => Promise<void>;

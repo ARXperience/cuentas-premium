@@ -520,13 +520,13 @@ async function generateClientInvoice(user, period = periodForBogotaDate(), actor
     }
 }
 async function generateClientInvoiceInner(user, period = periodForBogotaDate(), actorId, notifyAdmin = true) {
-    const { issueDate, dueDate } = billingScheduleForPeriod(period);
+    const { dueDate } = billingScheduleForPeriod(period);
+    const currentIssueDate = new Date();
     const { start, end } = periodBounds(period);
     const existing = await prisma.clientInvoice.findUnique({
         where: { user_id_period: { user_id: user.id, period } },
         include: { user: true, lines: true }
     });
-    const billedDeliveryIds = new Set((existing?.lines || []).map((line) => line.delivered_account_id).filter(Boolean));
     const deliveries = await prisma.deliveredAccount.findMany({
         where: {
             delivered_at: { gte: start, lt: end },
@@ -535,6 +535,15 @@ async function generateClientInvoiceInner(user, period = periodForBogotaDate(), 
         include: { order: true, orderItem: true },
         orderBy: { delivered_at: 'asc' }
     });
+    const validDeliveryIds = new Set(deliveries.map((delivery) => delivery.id));
+    const staleLineIds = (existing?.lines || [])
+        .filter((line) => line.delivered_account_id && !validDeliveryIds.has(line.delivered_account_id))
+        .map((line) => line.id);
+    const staleLineIdSet = new Set(staleLineIds);
+    const billedDeliveryIds = new Set((existing?.lines || [])
+        .filter((line) => !staleLineIdSet.has(line.id))
+        .map((line) => line.delivered_account_id)
+        .filter(Boolean));
     const newLines = deliveries
         .filter((delivery) => !billedDeliveryIds.has(delivery.id))
         .map((delivery, index) => {
@@ -562,8 +571,10 @@ async function generateClientInvoiceInner(user, period = periodForBogotaDate(), 
                 where: { id: existing.id },
                 data: {
                     title: existing.title || `Factura mensual ${user.name} ${period}`,
-                    issue_date: existing.issue_date || issueDate,
+                    status: 'sent',
+                    issue_date: currentIssueDate,
                     due_date: existing.due_date || dueDate,
+                    ...(staleLineIds.length ? { lines: { deleteMany: { id: { in: staleLineIds } } } } : {}),
                     ...(newLines.length ? { lines: { create: newLines } } : {})
                 },
                 include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } }
@@ -574,8 +585,8 @@ async function generateClientInvoiceInner(user, period = periodForBogotaDate(), 
                     user_id: user.id,
                     period,
                     title: `Factura mensual ${user.name} ${period}`,
-                    status: 'draft',
-                    issue_date: issueDate,
+                    status: 'sent',
+                    issue_date: currentIssueDate,
                     due_date: dueDate,
                     notes: 'Factura generada automaticamente con las cuentas entregadas del periodo.',
                     auto_generated: true,
@@ -2086,8 +2097,8 @@ app.patch('/api/admin/invoices/:id', sensitiveLimiter, requireAuth, requireRole(
                 where: { id: invoice.id },
                 data: {
                     title: input.title ?? invoice.title,
-                    status: input.status ?? invoice.status,
-                    issue_date: parseMaybeDate(input.issue_date) || invoice.issue_date,
+                    status: 'sent',
+                    issue_date: new Date(),
                     due_date: parseMaybeDate(input.due_date) || invoice.due_date,
                     notes: input.notes ?? invoice.notes,
                     total_amount: totalAmount
@@ -2104,9 +2115,20 @@ app.patch('/api/admin/invoices/:id', sensitiveLimiter, requireAuth, requireRole(
 });
 app.get('/api/admin/invoices/:id/pdf', requireAuth, requireRole('admin'), async (req, res, next) => {
     try {
-        const invoice = await prisma.clientInvoice.findUniqueOrThrow({
+        const invoice = await prisma.clientInvoice.update({
             where: { id: paramId(req.params.id) },
-            include: { user: true, lines: { include: { order: true }, orderBy: { position: 'asc' } } }
+            data: {
+                status: 'sent',
+                issue_date: new Date()
+            },
+            include: {
+                user: true,
+                lines: {
+                    where: { delivered_at: { not: null } },
+                    include: { order: true },
+                    orderBy: { position: 'asc' }
+                }
+            }
         });
         const pdf = await buildInvoicePdf(invoice, {
             money,

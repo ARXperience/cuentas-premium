@@ -2076,7 +2076,6 @@ function invoiceDocumentHtml(invoice: ClientInvoice, servimilUser?: User) {
       <div><span class="label">Factura</span><span class="value">${escapeHtml(invoice.invoice_number)}</span></div>
       <div><span class="label">Emision</span><span class="value">${escapeHtml(formatDateTime(invoice.issue_date))}</span></div>
       <div><span class="label">Vencimiento</span><span class="value">${escapeHtml(formatDateTime(invoice.due_date))}</span></div>
-      <div><span class="label">Estado</span><span class="value">${escapeHtml(invoiceStatusLabel(invoice.status))}</span></div>
       <div><span class="label">Cliente</span><span class="value">${escapeHtml(servimilUser?.name || "Servimil")}</span></div>
       <div><span class="label">Total</span><span class="value">${escapeHtml(money.format(invoice.total_amount))}</span></div>
     </section>
@@ -2150,7 +2149,6 @@ function invoicePdfLines(invoice: ClientInvoice, servimilUser?: User) {
     `Periodo: ${invoice.period}`,
     `Emision: ${formatDateTime(invoice.issue_date)}`,
     `Vencimiento: ${formatDateTime(invoice.due_date)}`,
-    `Estado: ${invoiceStatusLabel(invoice.status)}`,
     `Total a cobrar: ${money.format(invoice.total_amount)}`,
     "",
     "DETALLE"
@@ -2312,7 +2310,6 @@ function InvoiceDocumentPreview({ invoice, servimilUser }: { invoice: ClientInvo
           <div><span>Factura</span><strong>{invoice.invoice_number}</strong></div>
           <div><span>Emision</span><strong>{formatDateTime(invoice.issue_date)}</strong></div>
           <div><span>Vencimiento</span><strong>{formatDateTime(invoice.due_date)}</strong></div>
-          <div><span>Estado</span><strong>{invoiceStatusLabel(invoice.status)}</strong></div>
           <div><span>Cliente</span><strong>{servimilUser?.name || "Servimil"}</strong></div>
           <div><span>Total</span><strong>{money.format(invoice.total_amount)}</strong></div>
         </div>

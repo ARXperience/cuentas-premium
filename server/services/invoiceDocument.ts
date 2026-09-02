@@ -18,7 +18,6 @@ type Invoice = {
   invoice_number: string;
   period: string;
   title?: string | null;
-  status: string;
   issue_date: Date | string;
   due_date: Date | string;
   total_amount: number;
@@ -33,16 +32,6 @@ export type InvoiceDocOptions = {
   clientName?: string;
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  draft: 'Borrador',
-  sent: 'Enviada',
-  paid: 'Pagada',
-  cancelled: 'Cancelada'
-};
-function statusLabel(status: string) {
-  return STATUS_LABELS[status] || status;
-}
-
 // Paleta de la web
 const C = {
   blue: rgb(0.231, 0.510, 0.965), // #3b82f6
@@ -54,17 +43,8 @@ const C = {
   slate50: rgb(0.973, 0.980, 0.988), // #f8fafc
   border: rgb(0.886, 0.910, 0.941), // #e2e8f0
   white: rgb(1, 1, 1),
-  green: rgb(0.016, 0.471, 0.341), // #047857
-  greenBg: rgb(0.86, 0.95, 0.91),
-  red: rgb(0.725, 0.110, 0.110), // #b91c1c
-  redBg: rgb(0.99, 0.90, 0.90)
+  green: rgb(0.016, 0.471, 0.341) // #047857
 };
-
-function statusColors(status: string) {
-  if (status === 'sent' || status === 'paid') return { bg: C.greenBg, fg: C.green };
-  if (status === 'cancelled') return { bg: C.redBg, fg: C.red };
-  return { bg: C.slate100, fg: C.slate600 };
-}
 
 let logoCache: { centro: Buffer; servimil: Buffer } | null = null;
 function loadLogos() {
@@ -120,13 +100,6 @@ export async function buildInvoicePdf(invoice: Invoice, opts: InvoiceDocOptions)
       page.drawRectangle({ x: x + i * sw, y, width: sw + 0.5, height: h, color: lerp(C.blue, C.violet, i / (steps - 1)) });
     }
   };
-  const pill = (label: string, x: number, y: number, bg: RGB, fg: RGB) => {
-    const w = widthOf(label, 8, bold) + 16;
-    page.drawRectangle({ x, y: y - 3, width: w, height: 15, color: bg });
-    text(label, x + 8, y, 8, bold, fg);
-    return w;
-  };
-
   // ---- Encabezado ----
   let y = H - M;
   const logoH = 30;
@@ -162,7 +135,7 @@ export async function buildInvoicePdf(invoice: Invoice, opts: InvoiceDocOptions)
 
   y = boxY - 18;
 
-  // ---- Chips de meta ----
+  // ---- Datos de factura ----
   const metaY = y;
   const chip = (label: string, value: string, x: number, w: number) => {
     page.drawRectangle({ x, y: metaY - 34, width: w, height: 34, color: C.white, borderColor: C.border, borderWidth: 1 });
@@ -172,12 +145,7 @@ export async function buildInvoicePdf(invoice: Invoice, opts: InvoiceDocOptions)
   const chipW = (contentW - 20) / 3;
   chip('Emision', formatDateTime(invoice.issue_date), M, chipW);
   chip('Vencimiento', formatDateTime(invoice.due_date), M + chipW + 10, chipW);
-  // Estado como chip con pill
-  const ex = M + (chipW + 10) * 2;
-  page.drawRectangle({ x: ex, y: metaY - 34, width: chipW, height: 34, color: C.white, borderColor: C.border, borderWidth: 1 });
-  text('ESTADO', ex + 10, metaY - 13, 7, bold, C.slate500);
-  const sc = statusColors(invoice.status);
-  pill(statusLabel(invoice.status).toUpperCase(), ex + 10, metaY - 28, sc.bg, sc.fg);
+  chip('Total', money(invoice.total_amount), M + (chipW + 10) * 2, chipW);
 
   y = metaY - 34 - 22;
 

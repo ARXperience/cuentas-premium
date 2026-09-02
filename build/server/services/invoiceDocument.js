@@ -1,15 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-const STATUS_LABELS = {
-    draft: 'Borrador',
-    sent: 'Enviada',
-    paid: 'Pagada',
-    cancelled: 'Cancelada'
-};
-function statusLabel(status) {
-    return STATUS_LABELS[status] || status;
-}
 // Paleta de la web
 const C = {
     blue: rgb(0.231, 0.510, 0.965), // #3b82f6
@@ -21,18 +12,8 @@ const C = {
     slate50: rgb(0.973, 0.980, 0.988), // #f8fafc
     border: rgb(0.886, 0.910, 0.941), // #e2e8f0
     white: rgb(1, 1, 1),
-    green: rgb(0.016, 0.471, 0.341), // #047857
-    greenBg: rgb(0.86, 0.95, 0.91),
-    red: rgb(0.725, 0.110, 0.110), // #b91c1c
-    redBg: rgb(0.99, 0.90, 0.90)
+    green: rgb(0.016, 0.471, 0.341) // #047857
 };
-function statusColors(status) {
-    if (status === 'sent' || status === 'paid')
-        return { bg: C.greenBg, fg: C.green };
-    if (status === 'cancelled')
-        return { bg: C.redBg, fg: C.red };
-    return { bg: C.slate100, fg: C.slate600 };
-}
 let logoCache = null;
 function loadLogos() {
     if (logoCache)
@@ -83,12 +64,6 @@ export async function buildInvoicePdf(invoice, opts) {
             page.drawRectangle({ x: x + i * sw, y, width: sw + 0.5, height: h, color: lerp(C.blue, C.violet, i / (steps - 1)) });
         }
     };
-    const pill = (label, x, y, bg, fg) => {
-        const w = widthOf(label, 8, bold) + 16;
-        page.drawRectangle({ x, y: y - 3, width: w, height: 15, color: bg });
-        text(label, x + 8, y, 8, bold, fg);
-        return w;
-    };
     // ---- Encabezado ----
     let y = H - M;
     const logoH = 30;
@@ -120,7 +95,7 @@ export async function buildInvoicePdf(invoice, opts) {
     text(fit(clientName, boxW - sDims.width - 30, 11, bold), px + 12 + sDims.width + 8, y - 26, 11, bold);
     text('Cliente codigo 1111', px + 12, y - 50, 8.5, font, C.slate500);
     y = boxY - 18;
-    // ---- Chips de meta ----
+    // ---- Datos de factura ----
     const metaY = y;
     const chip = (label, value, x, w) => {
         page.drawRectangle({ x, y: metaY - 34, width: w, height: 34, color: C.white, borderColor: C.border, borderWidth: 1 });
@@ -130,12 +105,7 @@ export async function buildInvoicePdf(invoice, opts) {
     const chipW = (contentW - 20) / 3;
     chip('Emision', formatDateTime(invoice.issue_date), M, chipW);
     chip('Vencimiento', formatDateTime(invoice.due_date), M + chipW + 10, chipW);
-    // Estado como chip con pill
-    const ex = M + (chipW + 10) * 2;
-    page.drawRectangle({ x: ex, y: metaY - 34, width: chipW, height: 34, color: C.white, borderColor: C.border, borderWidth: 1 });
-    text('ESTADO', ex + 10, metaY - 13, 7, bold, C.slate500);
-    const sc = statusColors(invoice.status);
-    pill(statusLabel(invoice.status).toUpperCase(), ex + 10, metaY - 28, sc.bg, sc.fg);
+    chip('Total', money(invoice.total_amount), M + (chipW + 10) * 2, chipW);
     y = metaY - 34 - 22;
     // ---- Tabla ----
     const columns = [

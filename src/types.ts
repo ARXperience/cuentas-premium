@@ -55,7 +55,8 @@ export type AccountReport = {
   delivered_account_id: string;
   reason: AccountReportReason;
   details?: string | null;
-  evidence_data_url: string;
+  evidence_data_url?: string | null;
+  evidence_available?: boolean;
   status: AccountReportStatus;
   admin_notes?: string | null;
   resolved_by?: string | null;

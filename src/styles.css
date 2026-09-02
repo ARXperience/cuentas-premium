@@ -4655,6 +4655,23 @@ th {
   text-align: center;
 }
 
+.report-evidence-placeholder {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  padding: 18px;
+  color: #5b6f91;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.report-evidence-placeholder span {
+  position: static;
+  color: #5b6f91;
+  background: rgba(255, 255, 255, .72);
+}
+
 .admin-report-detail {
   display: grid;
   gap: 14px;

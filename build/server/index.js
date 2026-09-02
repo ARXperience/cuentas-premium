@@ -322,7 +322,8 @@ function serializeAccountReport(report) {
         delivered_account_id: report.delivered_account_id,
         reason: report.reason,
         details: report.details,
-        evidence_data_url: report.evidence_data_url,
+        evidence_data_url: report.evidence_data_url || null,
+        evidence_available: Boolean(report.evidence_data_url || report.evidence_available),
         status: report.status,
         admin_notes: report.admin_notes,
         resolved_by: report.resolved_by,
@@ -1799,6 +1800,23 @@ const accountReportInclude = {
     order: { select: { id: true, order_number: true, created_at: true } },
     deliveredAccount: { include: { orderItem: true, product: true } }
 };
+const accountReportListSelect = {
+    id: true,
+    user_id: true,
+    order_id: true,
+    delivered_account_id: true,
+    reason: true,
+    details: true,
+    status: true,
+    admin_notes: true,
+    resolved_by: true,
+    resolved_at: true,
+    created_at: true,
+    updated_at: true,
+    user: true,
+    order: { select: { id: true, order_number: true, created_at: true } },
+    deliveredAccount: { include: { orderItem: true, product: true } }
+};
 const createAccountReportSchema = z.object({
     delivered_account_id: z.string().min(1),
     reason: z.enum(accountReportReasons),
@@ -1847,10 +1865,16 @@ app.post('/api/account-reports', sensitiveLimiter, requireAuth, requireRole('cli
 app.get('/api/admin/account-reports', requireAuth, requireRole('admin'), async (_req, res, next) => {
     try {
         const reports = await prisma.accountReport.findMany({
-            include: accountReportInclude,
-            orderBy: [{ status: 'asc' }, { created_at: 'desc' }]
+            select: accountReportListSelect,
+            orderBy: [{ status: 'asc' }, { created_at: 'desc' }],
+            take: 60
         });
-        res.json({ reports: reports.map(serializeAccountReport) });
+        res.json({
+            reports: reports.map((report) => serializeAccountReport({
+                ...report,
+                evidence_available: true
+            }))
+        });
     }
     catch (error) {
         next(error);
@@ -2216,6 +2240,8 @@ async function handleClientInvoiceUpdate(req, res, next) {
     }
 }
 app.post('/api/admin/billing/invoices/:id', requireAuth, requireRole('admin'), handleClientInvoiceUpdate);
+app.patch('/api/admin/billing/invoices/:id', requireAuth, requireRole('admin'), handleClientInvoiceUpdate);
+app.post('/api/admin/invoices/:id', requireAuth, requireRole('admin'), handleClientInvoiceUpdate);
 app.patch('/api/admin/invoices/:id', requireAuth, requireRole('admin'), handleClientInvoiceUpdate);
 app.get('/api/admin/invoices/:id/pdf', requireAuth, requireRole('admin'), async (req, res, next) => {
     try {

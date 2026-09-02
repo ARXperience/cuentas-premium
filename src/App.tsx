@@ -771,7 +771,8 @@ function App() {
           : [data.invoice, ...current];
       });
       setNotice(data.message || "Factura de Servimil lista.");
-      await refreshAdminData();
+      await loadClientInvoices().catch(() => undefined);
+      await loadDashboard().catch(() => undefined);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "No se pudo generar la factura.");
     }
@@ -822,7 +823,8 @@ function App() {
       });
       setClientInvoices((current) => current.map((item) => item.id === data.invoice.id ? data.invoice : item));
       setNotice(data.message || "Factura actualizada.");
-      await refreshAdminData();
+      await loadClientInvoices().catch(() => undefined);
+      await loadDashboard().catch(() => undefined);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "No se pudo guardar la factura. Revisa los campos.");
     }
@@ -2708,10 +2710,16 @@ function AdminAccountReports({ reports, updateReport }: { reports: AccountReport
         {visibleReports.map((report) => (
           <article className="admin-report-card" key={report.id}>
             <div className="admin-report-evidence">
-              <a href={report.evidence_data_url} target="_blank" rel="noreferrer" title="Abrir evidencia completa">
-                <img src={report.evidence_data_url} alt={`Evidencia del reporte de ${report.delivered_account?.product_name || "cuenta"}`} />
-                <span>Ver evidencia completa</span>
-              </a>
+              {report.evidence_data_url ? (
+                <a href={report.evidence_data_url} target="_blank" rel="noreferrer" title="Abrir evidencia completa">
+                  <img src={report.evidence_data_url} alt={`Evidencia del reporte de ${report.delivered_account?.product_name || "cuenta"}`} />
+                  <span>Ver evidencia completa</span>
+                </a>
+              ) : (
+                <div className="report-evidence-placeholder">
+                  <span>Evidencia guardada</span>
+                </div>
+              )}
             </div>
             <div className="admin-report-detail">
               <div className="admin-report-title">

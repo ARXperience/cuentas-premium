@@ -292,6 +292,7 @@ function App() {
   const [providerDeliveries, setProviderDeliveries] = useState<ProviderDelivery[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [clientInvoices, setClientInvoices] = useState<ClientInvoice[]>([]);
+  const [cuentaCobroConfig, setCuentaCobroConfig] = useState<Record<string, string>>({});
   const [deliveryDrafts, setDeliveryDrafts] = useState<DeliveryDraft[]>([]);
   const [whatsappInboundMessages, setWhatsappInboundMessages] = useState<WhatsAppInboundMessage[]>([]);
   const [adminLogs, setAdminLogs] = useState<SystemLog[]>([]);
@@ -560,6 +561,7 @@ function App() {
       loadUsers,
       loadProducts,
       loadClientInvoices,
+      loadCuentaCobroConfig,
       loadProviderConfig,
       loadPendingPayouts,
       loadPendingDeliveryOrders,
@@ -879,6 +881,42 @@ function App() {
     }
   }
 
+  async function loadCuentaCobroConfig() {
+    if (user?.role !== "admin") return;
+    const data = await request<{ config: Record<string, string> }>("/api/admin/cuenta-cobro/config");
+    setCuentaCobroConfig(data.config || {});
+  }
+
+  async function saveCuentaCobroConfig(values: Record<string, string>) {
+    try {
+      const data = await request<{ config: Record<string, string>; message: string }>("/api/admin/cuenta-cobro/config", {
+        method: "PATCH",
+        body: JSON.stringify(values)
+      });
+      setCuentaCobroConfig(data.config || {});
+      setNotice(data.message || "Datos guardados.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "No se pudieron guardar los datos.");
+    }
+  }
+
+  async function downloadCuentaCobroPdf(invoice: ClientInvoice) {
+    setPending((current) => current + 1);
+    setNotice("Generando cuenta de cobro...");
+    try {
+      const response = await fetch(`${API_URL}/api/admin/invoices/${invoice.id}/cuenta-cobro-pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (!response.ok) throw new Error("No se pudo generar la cuenta de cobro.");
+      downloadBlob(`cuenta-cobro-${invoice.invoice_number || "documento"}.pdf`.replace(/[^\w.-]+/g, "-"), "application/pdf", await response.blob());
+      setNotice("Cuenta de cobro descargada.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "No se pudo descargar la cuenta de cobro.");
+    } finally {
+      setPending((current) => Math.max(0, current - 1));
+    }
+  }
+
   async function saveProduct(event: FormEvent<HTMLFormElement>, product?: Product) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -1159,7 +1197,7 @@ function App() {
       {view === "cart" && user?.role === "client" && <CartPage cart={cart} total={cartTotal} changeQuantity={changeQuantity} removeFromCart={removeFromCart} checkout={checkout} busy={busy} onContinueShopping={() => setView("catalog")} />}
       {view === "client" && user?.role === "client" && <ClientPanel user={user} orders={orders} notifications={notifications} unreadNotifications={unreadNotifications} markNotificationRead={markNotificationRead} cancelOrder={cancelClientOrder} submitAccountReport={submitAccountReport} busy={busy} copy={copy} goToCatalog={() => setView("catalog")} />}
       {view === "provider" && user?.role === "provider" && <ProviderPanel orders={orders} deliveries={providerDeliveries} deliver={deliver} busy={busy} />}
-      {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} trashedOrders={trashedOrders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} invoices={clientInvoices} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} notifications={notifications} unreadNotifications={unreadNotifications} adminLogs={adminLogs} accountReports={accountReports} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} cancelPayout={cancelPayout} generateServimilInvoice={generateServimilInvoice} saveClientInvoice={saveClientInvoice} downloadInvoicePdf={handleDownloadInvoicePdf} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} saveDeliveredAccountEdit={saveDeliveredAccountEdit} updateAccountReport={updateAccountReport} markNotificationRead={markNotificationRead} deleteOrder={deleteAdminOrder} copy={copy} />}
+      {view === "admin" && user?.role === "admin" && <AdminPanel dashboard={dashboard} users={users} products={products} orders={orders} trashedOrders={trashedOrders} pendingDeliveryOrders={pendingDeliveryOrders} pendingPayouts={pendingPayouts} invoices={clientInvoices} providerConfig={providerConfig} whatsappStatus={whatsappStatus} whatsappQr={whatsappQr} emailStatus={emailStatus} notifications={notifications} unreadNotifications={unreadNotifications} adminLogs={adminLogs} accountReports={accountReports} savingProductId={savingProductId} saveProduct={saveProduct} saveProviderConfig={saveProviderConfig} saveAdminNotificationConfig={saveAdminNotificationConfig} saveEmailConfig={saveEmailConfig} testAdminEmail={testAdminEmail} connectWhatsApp={connectWhatsApp} retryWhatsAppFailed={retryWhatsAppFailed} disconnectWhatsApp={disconnectWhatsApp} testAdminWhatsApp={testAdminWhatsApp} markReceiptSent={markReceiptSent} cancelPayout={cancelPayout} generateServimilInvoice={generateServimilInvoice} saveClientInvoice={saveClientInvoice} downloadInvoicePdf={handleDownloadInvoicePdf} cuentaCobro={{ config: cuentaCobroConfig, save: saveCuentaCobroConfig, exportPdf: downloadCuentaCobroPdf }} previewDeliveryMessage={previewDeliveryMessage} approveParsedDelivery={approveParsedDelivery} saveDeliveryDraft={saveDeliveryDraft} updateStatus={updateStatus} saveOrderEdit={saveOrderEdit} saveDeliveredAccountEdit={saveDeliveredAccountEdit} updateAccountReport={updateAccountReport} markNotificationRead={markNotificationRead} deleteOrder={deleteAdminOrder} copy={copy} />}
 
       <AddedProductModal
         product={selectedAddedProduct}
@@ -2497,12 +2535,34 @@ function InvoiceDocumentPreview({ invoice, servimilUser }: { invoice: ClientInvo
   );
 }
 
-function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, saveClientInvoice, downloadInvoicePdf }: {
+type CuentaCobroProps = {
+  config: Record<string, string>;
+  save: (values: Record<string, string>) => void;
+  exportPdf: (invoice: ClientInvoice) => void;
+};
+
+const CUENTA_COBRO_FIELDS: Array<{ key: string; label: string }> = [
+  { key: "cc_acreedor_name", label: "Quien cobra (acreedor)" },
+  { key: "cc_acreedor_id", label: "NIT/CC acreedor" },
+  { key: "cc_deudor_name", label: "Quien debe (deudor / cliente)" },
+  { key: "cc_deudor_id", label: "NIT/CC deudor" },
+  { key: "cc_rep_name", label: "Representante (Julian)" },
+  { key: "cc_rep_role", label: "Cargo del representante" },
+  { key: "cc_rep_id", label: "Cedula del representante" },
+  { key: "cc_city", label: "Ciudad" },
+  { key: "cc_concept", label: "Concepto" },
+  { key: "cc_signer_name", label: "Nombre de quien firma" },
+  { key: "cc_signer_id", label: "CC/NIT de quien firma" },
+  { key: "cc_contact", label: "Contacto (pie de pagina)" }
+];
+
+function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, saveClientInvoice, downloadInvoicePdf, cuentaCobro }: {
   invoices: ClientInvoice[];
   servimilUser?: User;
   generateServimilInvoice: (period?: string, startDate?: string, endDate?: string) => void;
   saveClientInvoice: (invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) => Promise<void>;
   downloadInvoicePdf: (invoice: ClientInvoice) => void;
+  cuentaCobro: CuentaCobroProps;
 }) {
   const [period, setPeriod] = useState(currentInvoicePeriod());
   const initialRange = currentMonthDateRange();
@@ -2511,6 +2571,9 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(invoices[0]?.id || null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [removedLineIds, setRemovedLineIds] = useState<string[]>([]);
+  const [ccOpen, setCcOpen] = useState(false);
+  const [ccForm, setCcForm] = useState<Record<string, string>>(cuentaCobro.config);
+  useEffect(() => { setCcForm(cuentaCobro.config); }, [cuentaCobro.config]);
   const selectedInvoice = invoices.find((invoice) => invoice.id === selectedInvoiceId) || invoices[0] || null;
   const visibleInvoiceLines = selectedInvoice?.lines.filter((line) => !removedLineIds.includes(line.id)) || [];
   const visibleInvoiceTotal = visibleInvoiceLines.reduce((sum, line) => sum + line.total, 0);
@@ -2687,11 +2750,36 @@ function AdminBillingPanel({ invoices, servimilUser, generateServimilInvoice, sa
               <button type="button" onClick={() => generateServimilInvoice(selectedInvoice.period, selectedStartDate, selectedEndDate)}>Actualizar con cuentas nuevas</button>
               <button type="button" onClick={() => setPreviewOpen((open) => !open)}>{previewOpen ? "Ocultar vista previa" : "Vista previa"}</button>
               <button type="button" onClick={() => downloadInvoicePdf(selectedInvoice)}>Descargar PDF</button>
+              <button type="button" className="btn-solid" onClick={() => cuentaCobro.exportPdf(selectedInvoice)}>Exportar cuenta de cobro</button>
               <button type="button" onClick={() => invoicePreview && printInvoice(invoicePreview, servimilUser)}>Imprimir / guardar PDF</button>
               <button type="button" onClick={() => invoicePreview && downloadInvoiceDoc(invoicePreview, servimilUser)}>Descargar DOC</button>
             </div>
             {previewOpen && invoicePreview && <InvoiceDocumentPreview invoice={invoicePreview} servimilUser={servimilUser} />}
           </form>
+        )}
+      </div>
+
+      <div className="cuenta-cobro-config">
+        <button type="button" className="cc-toggle" onClick={() => setCcOpen((open) => !open)}>
+          {ccOpen ? "Ocultar datos de la cuenta de cobro" : "Editar datos de la cuenta de cobro (Julian, concepto, firma...)"}
+        </button>
+        {ccOpen && (
+          <div className="cc-grid">
+            {CUENTA_COBRO_FIELDS.map((field) => (
+              <label key={field.key} className={field.key === "cc_concept" ? "cc-field-wide" : undefined}>
+                {field.label}
+                {field.key === "cc_concept" ? (
+                  <textarea value={ccForm[field.key] || ""} onChange={(event) => setCcForm((state) => ({ ...state, [field.key]: event.target.value }))} />
+                ) : (
+                  <input value={ccForm[field.key] || ""} onChange={(event) => setCcForm((state) => ({ ...state, [field.key]: event.target.value }))} />
+                )}
+              </label>
+            ))}
+            <div className="cc-actions">
+              <button type="button" className="btn-solid" onClick={() => cuentaCobro.save(ccForm)}>Guardar datos</button>
+              <small>Estos datos se guardan y se usan al exportar la cuenta de cobro de cualquier factura.</small>
+            </div>
+          </div>
         )}
       </div>
     </section>
@@ -2789,7 +2877,7 @@ function AdminAccountReports({ reports, updateReport }: { reports: AccountReport
   );
 }
 
-function AdminPanel({ dashboard, users, products, orders, trashedOrders, pendingDeliveryOrders, pendingPayouts, invoices, providerConfig, whatsappStatus, whatsappQr, emailStatus, notifications, unreadNotifications, adminLogs, accountReports, savingProductId, saveProduct, saveProviderConfig, saveAdminNotificationConfig, saveEmailConfig, testAdminEmail, connectWhatsApp, retryWhatsAppFailed, disconnectWhatsApp, testAdminWhatsApp, markReceiptSent, cancelPayout, generateServimilInvoice, saveClientInvoice, downloadInvoicePdf, previewDeliveryMessage, approveParsedDelivery, saveDeliveryDraft, updateStatus, saveOrderEdit, saveDeliveredAccountEdit, updateAccountReport, markNotificationRead, deleteOrder, copy }: {
+function AdminPanel({ dashboard, users, products, orders, trashedOrders, pendingDeliveryOrders, pendingPayouts, invoices, providerConfig, whatsappStatus, whatsappQr, emailStatus, notifications, unreadNotifications, adminLogs, accountReports, savingProductId, saveProduct, saveProviderConfig, saveAdminNotificationConfig, saveEmailConfig, testAdminEmail, connectWhatsApp, retryWhatsAppFailed, disconnectWhatsApp, testAdminWhatsApp, markReceiptSent, cancelPayout, generateServimilInvoice, saveClientInvoice, downloadInvoicePdf, cuentaCobro, previewDeliveryMessage, approveParsedDelivery, saveDeliveryDraft, updateStatus, saveOrderEdit, saveDeliveredAccountEdit, updateAccountReport, markNotificationRead, deleteOrder, copy }: {
   dashboard: Dashboard | null;
   users: User[];
   products: Product[];
@@ -2821,6 +2909,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
   generateServimilInvoice: (period?: string, startDate?: string, endDate?: string) => void;
   saveClientInvoice: (invoice: ClientInvoice, event: FormEvent<HTMLFormElement>) => Promise<void>;
   downloadInvoicePdf: (invoice: ClientInvoice) => void;
+  cuentaCobro: CuentaCobroProps;
   previewDeliveryMessage: (orderId: string | undefined, rawText: string) => Promise<{ preview: DeliveryParserPreview; order: Order }>;
   approveParsedDelivery: (orderId: string, rawText: string, items: DeliveryParserItem[]) => Promise<void>;
   saveDeliveryDraft: (orderId: string, rawText: string, preview: DeliveryParserPreview) => Promise<void>;
@@ -3267,6 +3356,7 @@ function AdminPanel({ dashboard, users, products, orders, trashedOrders, pending
             generateServimilInvoice={generateServimilInvoice}
             saveClientInvoice={saveClientInvoice}
             downloadInvoicePdf={downloadInvoicePdf}
+            cuentaCobro={cuentaCobro}
           />
         )}
         {adminModule === "process" && processAccountsModule}

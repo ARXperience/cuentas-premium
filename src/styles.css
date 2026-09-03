@@ -2925,6 +2925,72 @@ th {
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
+.cuenta-cobro-config {
+  margin-top: 20px;
+  border-top: 1px solid rgba(148, 163, 184, 0.3);
+  padding-top: 16px;
+}
+
+.cc-toggle {
+  width: auto;
+  min-width: 0;
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  background: rgba(59, 130, 246, 0.1);
+  color: #1d4ed8;
+  border: 1px solid rgba(59, 130, 246, 0.28);
+}
+
+.cc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.cc-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.cc-grid input,
+.cc-grid textarea {
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #0f172a;
+}
+
+.cc-grid textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+.cc-field-wide {
+  grid-column: 1 / -1;
+}
+
+.cc-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cc-actions small {
+  color: #64748b;
+  font-weight: 600;
+}
+
 .invoice-preview-shell {
   min-width: 0;
   padding: 18px;

@@ -28,6 +28,7 @@ import type { DeliveryParserItem } from './services/deliveryParser/index.js';
 import { emailConfigured, sendAdminOrderNotificationEmail, sendSmtpEmail, verifySmtpConnection } from './services/email/index.js';
 import type { SmtpConfig } from './services/email/index.js';
 import { buildInvoicePdf } from './services/invoiceDocument.js';
+import { buildCuentaCobroPdf, CUENTA_COBRO_KEYS, CUENTA_COBRO_DEFAULTS, type CuentaCobroConfig, type CuentaCobroKey } from './services/cuentaCobro.js';
 
 const prisma = createPrismaClient();
 const app = express();
@@ -2491,6 +2492,59 @@ app.get('/api/admin/invoices/:id/pdf', requireAuth, requireRole('admin'), async 
       clientName: invoice.user?.name || 'Servimil'
     });
     const filename = `${invoice.invoice_number || 'factura'}-${invoice.period || ''}.pdf`.replace(/[^\w.-]+/g, '-');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(pdf);
+  } catch (error) {
+    next(error);
+  }
+});
+
+async function loadCuentaCobroConfig(): Promise<CuentaCobroConfig> {
+  const entries = await Promise.all(
+    CUENTA_COBRO_KEYS.map(async (key) => [key, await getSettingValue(key, CUENTA_COBRO_DEFAULTS[key])] as const)
+  );
+  return Object.fromEntries(entries) as CuentaCobroConfig;
+}
+
+app.get('/api/admin/cuenta-cobro/config', requireAuth, requireRole('admin'), async (_req, res, next) => {
+  try {
+    res.json({ config: await loadCuentaCobroConfig() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/admin/cuenta-cobro/config', sensitiveLimiter, requireAuth, requireRole('admin'), async (req, res, next) => {
+  try {
+    const shape = Object.fromEntries(CUENTA_COBRO_KEYS.map((key) => [key, z.string().max(400).optional()]));
+    const input = z.object(shape).parse(req.body || {});
+    for (const key of CUENTA_COBRO_KEYS) {
+      const value = (input as Record<CuentaCobroKey, string | undefined>)[key];
+      if (value !== undefined) await upsertSetting(key, value.trim(), false);
+    }
+    res.json({ config: await loadCuentaCobroConfig(), message: 'Datos de la cuenta de cobro guardados.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/admin/invoices/:id/cuenta-cobro-pdf', requireAuth, requireRole('admin'), async (req, res, next) => {
+  try {
+    const invoice = await prisma.clientInvoice.findUniqueOrThrow({
+      where: { id: paramId(req.params.id) },
+      include: {
+        user: true,
+        lines: { where: { delivered_at: { not: null } }, include: { order: true }, orderBy: { position: 'asc' } }
+      }
+    });
+    const config = await loadCuentaCobroConfig();
+    const pdf = await buildCuentaCobroPdf(invoice, {
+      money,
+      formatDate: (value) => (value ? formatDateTimeCO(value) : '-'),
+      config
+    });
+    const filename = `cuenta-cobro-${invoice.invoice_number || ''}.pdf`.replace(/[^\w.-]+/g, '-');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(pdf);

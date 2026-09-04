@@ -2308,7 +2308,7 @@ app.get('/api/admin/invoices/:id/cuenta-cobro-pdf', requireAuth, requireRole('ad
             where: { id: paramId(req.params.id) },
             include: {
                 user: true,
-                lines: { where: { delivered_at: { not: null } }, include: { order: true }, orderBy: { position: 'asc' } }
+                lines: { include: { order: true }, orderBy: { position: 'asc' } }
             }
         });
         const config = await loadCuentaCobroConfig();

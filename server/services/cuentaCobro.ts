@@ -76,7 +76,7 @@ export function montoEnLetras(value: number): string {
 }
 
 // ---- PDF ----
-type InvoiceLine = { description: string; quantity: number; total: number; order?: { order_number?: string | null } | null };
+type InvoiceLine = { description: string; account_email?: string | null; quantity: number; total: number; order?: { order_number?: string | null } | null };
 type Invoice = {
   invoice_number: string;
   period: string;
@@ -130,13 +130,19 @@ export async function buildCuentaCobroPdf(invoice: Invoice, opts: CuentaCobroOpt
   const H = 841.89;
   const M = 48;
   const contentW = W - M * 2;
-  const page: PDFPage = pdf.addPage([W, H]);
+  let page: PDFPage = pdf.addPage([W, H]);
 
   const text = (s: string, x: number, y: number, size: number, f: PDFFont = font, color: RGB = C.ink) =>
     page.drawText(winAnsi(s), { x, y, size, font: f, color });
   const widthOf = (s: string, size: number, f: PDFFont = font) => f.widthOfTextAtSize(winAnsi(s), size);
   const center = (s: string, y: number, size: number, f: PDFFont = font, color: RGB = C.ink) =>
     text(s, (W - widthOf(s, size, f)) / 2, y, size, f, color);
+  const fit = (s: string, maxW: number, size: number, f: PDFFont = font) => {
+    let v = winAnsi(s);
+    if (f.widthOfTextAtSize(v, size) <= maxW) return v;
+    while (v.length > 1 && f.widthOfTextAtSize(v + '...', size) > maxW) v = v.slice(0, -1);
+    return v + '...';
+  };
   const wrap = (s: string, size: number, maxW: number, f: PDFFont = font) => {
     const words = winAnsi(s).split(/\s+/).filter(Boolean);
     const out: string[] = [];
@@ -204,26 +210,40 @@ export async function buildCuentaCobroPdf(invoice: Invoice, opts: CuentaCobroOpt
   body('A cargo de:', `${config.cc_rep_name}${config.cc_rep_role ? ` (${config.cc_rep_role})` : ''}${config.cc_rep_id ? `  ·  CC ${config.cc_rep_id}` : ''}`);
   y -= 10;
 
-  // Detalle opcional (cuentas del periodo)
+  // Detalle completo de las cuentas del periodo (con paginacion para no cortar ninguna)
   const lines = invoice.lines || [];
-  if (lines.length) {
-    text('Detalle del periodo:', M, y, 9, bold, C.muted);
-    y -= 16;
+  const drawDetailHead = () => {
     page.drawRectangle({ x: M, y: y - 2, width: contentW, height: 16, color: C.soft });
     text('SERVICIO', M + 8, y + 2, 8, bold, C.muted);
-    text('CANT', M + contentW - 130, y + 2, 8, bold, C.muted);
+    text('CORREO', M + 168, y + 2, 8, bold, C.muted);
+    text('CANT', M + contentW - 118, y + 2, 8, bold, C.muted);
     text('TOTAL', M + contentW - 8 - widthOf('TOTAL', 8, bold), y + 2, 8, bold, C.muted);
     y -= 16;
+  };
+  if (lines.length) {
+    text(`Detalle del periodo (${lines.length} cuenta${lines.length === 1 ? '' : 's'}):`, M, y, 9, bold, C.muted);
+    y -= 16;
+    drawDetailHead();
     for (const l of lines) {
-      if (y < M + 150) break;
-      text(l.description || '-', M + 8, y, 8.5, font);
-      text(String(l.quantity), M + contentW - 130, y, 8.5, font);
+      if (y < M + 60) {
+        page = pdf.addPage([W, H]);
+        y = H - M;
+        drawDetailHead();
+      }
+      text(fit(l.description || '-', 150, 8.5), M + 8, y, 8.5, font);
+      text(fit(l.account_email || '-', contentW - 118 - 168, 8.5), M + 168, y, 8.5, font, C.muted);
+      text(String(l.quantity), M + contentW - 118, y, 8.5, font);
       const tt = money(l.total);
       text(tt, M + contentW - 8 - widthOf(tt, 8.5), y, 8.5, font);
       page.drawLine({ start: { x: M, y: y - 5 }, end: { x: W - M, y: y - 5 }, thickness: 0.4, color: C.border });
       y -= 16;
     }
-    y -= 6;
+    // Total del detalle (debe coincidir con el monto cobrado)
+    const detalleSuma = lines.reduce((sum, l) => sum + (l.total || 0), 0);
+    y -= 4;
+    const totLabel = `Total ${lines.length} cuenta${lines.length === 1 ? '' : 's'}: ${money(detalleSuma)}`;
+    text(totLabel, M + contentW - widthOf(totLabel, 9, bold), y, 9, bold, C.ink);
+    y -= 12;
   }
 
   // Firma
